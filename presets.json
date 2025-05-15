@@ -1,0 +1,26 @@
+{
+  "presets": [
+    {
+      "name": "Test",
+      "items": [
+        {
+          "part_id": 1525,
+          "quantity": 5
+        },
+        {
+          "part_id": 1903,
+          "quantity": 2
+        },
+        {
+          "part_id": 1984,
+          "quantity": 4
+        },
+        {
+          "part_id": 1983,
+          "quantity": 3
+        }
+      ]
+    }
+  ],
+  "filepath": "presets.json"
+}

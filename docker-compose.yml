@@ -1,0 +1,9 @@
+services:
+  inventree-calculator:
+    build: .
+    ports:
+      - "8501"
+    volumes:
+      - ./.env:/app/.env
+    # The working directory is set to /app in the Dockerfile,
+    # so AppConfig should find .env in /app/.env

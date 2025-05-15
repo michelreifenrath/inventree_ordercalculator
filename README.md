@@ -1,0 +1,130 @@
+# Inventree Order Calculator
+
+A command-line tool to calculate the required components for building a specified number of top-level assemblies based on Bill of Materials (BOM) data fetched from an InvenTree instance.
+
+## Requirements
+
+- Python 3.8+
+- `uv` (Python package installer and virtual environment manager)
+
+## Installation
+
+1.  **Clone the repository:**
+    ```bash
+    git clone <repository-url>
+    cd inventree-order-calculator
+    ```
+2.  **Install dependencies using `uv`:**
+    This command creates a virtual environment (if one doesn't exist) and installs the packages specified in [`pyproject.toml`](pyproject.toml:0) and [`uv.lock`](uv.lock:0).
+    ```bash
+    uv sync
+    ```
+
+## Configuration
+
+The tool requires access to your InvenTree instance. Configure the following environment variables:
+
+-   `INVENTREE_URL`: The base URL of your InvenTree instance (e.g., `http://inventree.example.com`).
+-   `INVENTREE_API_TOKEN`: Your InvenTree API token. You can generate this in your InvenTree user settings.
+-   `INVENTREE_INSTANCE_URL` (Optional): The base URL of your InvenTree instance, used for generating clickable links to parts in the output (e.g., `https://my.inventree.server`). If not provided, links will not be generated.
+
+You can set these variables directly in your shell environment:
+
+```bash
+export INVENTREE_URL="http://inventree.example.com/api/"
+export INVENTREE_API_TOKEN="your_api_token_here"
+export INVENTREE_INSTANCE_URL="http://inventree.example.com"
+```
+
+Alternatively, you can create a `.env` file in the project's root directory:
+
+```dotenv
+# .env
+INVENTREE_URL=http://inventree.example.com/api/
+INVENTREE_API_TOKEN=your_api_token_here
+INVENTREE_INSTANCE_URL=http://inventree.example.com
+```
+
+The tool will automatically load variables from the `.env` file if it exists.
+
+> **Note:** An example configuration file [`.env.example`](.env.example:0) is provided. Copy this file to `.env` and replace the placeholder values with your actual InvenTree API URL, API token, and instance URL.
+
+## Usage
+
+Run the calculator using `uv run`. Provide the part number (IPN - Internal Part Number) and the desired quantity for each top-level assembly you want to calculate the requirements for.
+
+The format is `PART_IPN:QUANTITY`.
+
+**Example:**
+
+To calculate the components needed to build 10 units of part `PART_ID_1` and 5 units of part `PART_ID_2`:
+
+```bash
+uv run python -m inventree_order_calculator PART_ID_1:10 PART_ID_2:5
+```
+
+The tool will output two Markdown-formatted tables:
+
+1.  **Parts to Order:** Lists purchasable components where the `To Order` quantity (calculated as `Total Required - Available Stock`) is greater than 0. This calculation intentionally ignores any `On Order` quantity to reflect immediate needs against current physical stock.
+2.  **Subassemblies to Build:** Lists subassemblies that need to be manufactured. An assembly appears here if its `To Build` quantity (calculated as `Total Required - (Available Stock + In Production)`) is greater than 0, OR if it has an `In Production` quantity greater than 0 (even if `Total Required` is met). This ensures visibility of ongoing production.
+
+These tables provide a clear overview of what needs to be procured or manufactured to fulfill the specified top-level assembly builds.
+
+### Filtering Consumables
+
+Parts can be marked as "consumable" in InvenTree (e.g., solder, glue, cleaning supplies). By default, these parts are included in the calculation results.
+
+**CLI:**
+You can exclude consumable parts from the output tables using the `--hide-consumables` flag:
+```bash
+uv run python -m inventree_order_calculator PART_ID_1:10 --hide-consumables
+```
+
+**Streamlit UI:**
+The Streamlit interface provides a toggle switch labeled "Consumables anzeigen" (Show Consumables). By default, it is on (consumables are shown). Toggling it off will filter consumable parts from the displayed tables.
+
+### Filtering by Supplier (HAIP Solutions GmbH)
+
+The tool allows filtering out parts supplied by "HAIP Solutions GmbH".
+
+**CLI:**
+Use the `--hide-haip-parts` flag to exclude parts from this supplier:
+```bash
+uv run python -m inventree_order_calculator PART_ID_1:10 --hide-haip-parts
+```
+
+**Streamlit UI:**
+A toggle switch labeled "HAIP Solutions Teile ausblenden" (Hide HAIP Solutions Parts) is available. By default, it is off (parts are shown). Toggling it on will filter these parts from the displayed tables.
+## Running with Docker Compose
+
+To run the Inventree Order Calculator using Docker Compose, follow these steps:
+
+1.  **Create a `.env` file:**
+    Copy the [`.env.example`](.env.example:0) file to `.env` in the project root:
+    ```bash
+    cp .env.example .env
+    ```
+    Then, open the `.env` file and fill in your InvenTree instance URL, API token, and optionally the instance URL for links:
+    ```dotenv
+    # .env
+    INVENTREE_URL=http://your-inventree-instance.com/api/
+    INVENTREE_API_TOKEN=your_api_token_here
+    INVENTREE_INSTANCE_URL=http://your-inventree-instance.com # Optional, for clickable links
+    ```
+
+2.  **Build and run the application (Detached Mode with Dynamic Port):**
+    Use the following command from the project root directory to start the services in detached mode. Docker will assign a random available port on the host to the container's port 8501.
+    ```bash
+    docker-compose up --build -d
+    ```
+    This command will build the Docker image (if it doesn't exist or if changes are detected) and start the application container in the background. The `--build` flag ensures the image is rebuilt if the `Dockerfile` or project files change.
+
+3.  **Find the Assigned Host Port:**
+    After the containers are started, you can find out which host port was assigned to the `inventree-calculator` service's port 8501 using:
+    ```bash
+    docker-compose port inventree-calculator 8501
+    ```
+    The output will be in the format `0.0.0.0:XXXXX` or `::XXXXX`, where `XXXXX` is the dynamically assigned host port.
+
+4.  **Access the application:**
+    The Streamlit application will then be accessible in your web browser at `http://localhost:XXXXX` (replace `XXXXX` with the port number you found in the previous step).
