@@ -2,541 +2,285 @@ import pytest
 import json
 from pathlib import Path
 from unittest.mock import patch, mock_open
-from pydantic import ValidationError # Added import
 
 from src.inventree_order_calculator.presets_manager import (
-    PresetsManager,
-    MonitoringPartItem,
-    MonitoringList,
-    # EmailConfig and PresetsFile are used internally or via PresetsManager
+    load_presets_from_file,
+    save_presets_to_file,
+    add_or_update_preset,
+    delete_preset_by_name,
+    get_preset_names,
+    get_preset_by_name,
 )
-from src.inventree_order_calculator.config import EmailConfig # Corrected import for EmailConfig
-from src.inventree_order_calculator.presets_manager import PresetsFile # For direct comparison in some tests
+from src.inventree_order_calculator.presets_manager import (
+    PresetItem,
+    Preset,
+    PresetsFile,
+)
 
-# Obsolete tests for old preset system (Preset, PresetItem, PresetsFile)
-# and standalone functions have been removed.
-# The PresetsManager now handles MonitoringList and EmailConfig.
-# Tests for the new PresetsManager start further down.
+# TDD Anchor: Test loading from a non-existent file
+def test_load_presets_from_non_existent_file(tmp_path):
+    """
+    Test that loading from a non-existent file returns a default PresetsFile.
+    """
+    non_existent_file = tmp_path / "non_existent_presets.json"
+    presets_file = load_presets_from_file(non_existent_file)
+    assert presets_file == PresetsFile(presets=[], filepath=non_existent_file) # Expect filepath to be set
+    assert presets_file.filepath == non_existent_file
 
-# --- Tests for MonitoringList and MonitoringPartItem Pydantic Models ---
+# TDD Anchor: Test loading from a malformed JSON file
+def test_load_presets_from_malformed_json_file(tmp_path, caplog):
+    """
+    Test that loading from a malformed JSON file handles JSONDecodeError,
+    logs an error, and returns a default PresetsFile.
+    """
+    malformed_file = tmp_path / "malformed_presets.json"
+    malformed_file.write_text("this is not json")
 
-def test_monitoring_part_item_valid():
-    """Test valid MonitoringPartItem creation."""
-    item = MonitoringPartItem(name_or_ipn="Resistor10K", quantity=100, version="R02")
-    assert item.name_or_ipn == "Resistor10K"
-    assert item.quantity == 100
-    assert item.version == "R02"
+    presets_file = load_presets_from_file(malformed_file)
+    assert presets_file == PresetsFile(presets=[], filepath=malformed_file) # Expect filepath to be set
+    assert presets_file.filepath == malformed_file
+    # The actual log message from presets_manager.py is "JSON decode error loading presets from..."
+    assert "JSON decode error loading presets from" in caplog.text
+    assert str(malformed_file) in caplog.text
 
-def test_monitoring_part_item_invalid_quantity():
-    """Test MonitoringPartItem raises ValueError for quantity <= 0."""
-    with pytest.raises(ValidationError):
-        MonitoringPartItem(name_or_ipn="Capacitor", quantity=0)
-    with pytest.raises(ValidationError):
-        MonitoringPartItem(name_or_ipn="Inductor", quantity=-5)
+# TDD Anchor: Test loading a valid presets.json file
+def test_load_presets_from_valid_file(tmp_path):
+    """
+    Test loading a valid presets.json file and verify correct parsing.
+    """
+    valid_file = tmp_path / "valid_presets.json"
+    preset_item_data = {"part_id": "R10k", "quantity": 100}
+    preset_data = {"name": "Test Preset 1", "items": [preset_item_data]}
+    presets_file_data = {"presets": [preset_data]}
+    valid_file.write_text(json.dumps(presets_file_data))
 
-def test_monitoring_part_item_missing_name():
-    """Test MonitoringPartItem raises ValueError for missing name_or_ipn."""
-    with pytest.raises(ValidationError):
-        MonitoringPartItem(quantity=10) # name_or_ipn is required
+    expected_preset_item = PresetItem(part_id="R10k", quantity=100)
+    expected_preset = Preset(name="Test Preset 1", items=[expected_preset_item])
+    expected_presets_file = PresetsFile(presets=[expected_preset], filepath=valid_file)
 
-def test_monitoring_list_valid_basic():
-    """Test valid MonitoringList creation with minimal required fields."""
-    parts = [MonitoringPartItem(name_or_ipn="PART-A", quantity=10)]
-    ml = MonitoringList(
-        name="Test Monitor",
-        parts=parts,
-        interval_minutes=60, # Added required field
-        cron_schedule="0 * * * *", # Every hour
-        recipients=["test@example.com"]
+    loaded_presets_file = load_presets_from_file(valid_file)
+    assert loaded_presets_file == expected_presets_file
+    assert loaded_presets_file.filepath == valid_file
+    assert len(loaded_presets_file.presets) == 1
+    assert loaded_presets_file.presets[0].name == "Test Preset 1"
+    assert len(loaded_presets_file.presets[0].items) == 1
+    assert loaded_presets_file.presets[0].items[0].part_id == "R10k"
+
+
+# TDD Anchor: Test saving PresetsFile data
+def test_save_presets_to_file(tmp_path):
+    """
+    Test saving PresetsFile data and verify the content of the written JSON file.
+    """
+    output_file = tmp_path / "output_presets.json"
+    preset_item1 = PresetItem(part_id="C10uF", quantity=50)
+    preset1 = Preset(name="Caps", items=[preset_item1])
+    preset_item2 = PresetItem(part_id="LED_R", quantity=200)
+    preset2 = Preset(name="LEDs", items=[preset_item2])
+    presets_to_save = PresetsFile(presets=[preset1, preset2], filepath=output_file)
+
+    save_presets_to_file(presets_to_save, filepath=output_file) # Pass the output_file path
+
+    assert output_file.exists()
+    saved_data = json.loads(output_file.read_text())
+    
+    # The model_dump_json will not include the 'filepath' field by default unless include is specified.
+    # Also, PresetItem and Preset do not have a 'metadata' field.
+    expected_data = {
+        "presets": [
+            {"name": "Caps", "items": [{"part_id": "C10uF", "quantity": 50}]},
+            {"name": "LEDs", "items": [{"part_id": "LED_R", "quantity": 200}]}
+        ]
+        # filepath is not part of the JSON dump for the root model by default
+    }
+    assert len(saved_data["presets"]) == len(expected_data["presets"])
+    
+    # Check content more carefully
+    assert saved_data["presets"][0]["name"] == "Caps"
+    assert saved_data["presets"][0]["items"][0]["part_id"] == "C10uF"
+    assert saved_data["presets"][0]["items"][0]["quantity"] == 50
+    assert saved_data["presets"][1]["name"] == "LEDs"
+    assert saved_data["presets"][1]["items"][0]["part_id"] == "LED_R"
+    assert saved_data["presets"][1]["items"][0]["quantity"] == 200
+
+
+# TDD Anchor: Test I/O error during write
+@patch("pathlib.Path.write_text")
+def test_save_presets_to_file_io_error(mock_write_text, tmp_path, caplog):
+    """
+    Test that an I/O error during file write is caught, logged, and an exception is raised.
+    """
+    output_file = tmp_path / "error_presets.json"
+    presets_to_save = PresetsFile(presets=[], filepath=output_file)
+    
+    mock_write_text.side_effect = IOError("Disk full")
+
+    with pytest.raises(IOError) as excinfo:
+        save_presets_to_file(presets_to_save, filepath=output_file) # Pass the output_file path
+    
+    assert "Disk full" in str(excinfo.value)
+    # The log message in save_presets_to_file uses the filepath passed to it.
+    assert f"IOError saving presets to {output_file}" in caplog.text
+    assert "Disk full" in caplog.text
+
+
+# TDD Anchor: Test adding a new preset to an empty PresetsFile
+def test_add_new_preset_to_empty_presets_file(tmp_path):
+    """
+    Test adding a new preset to an empty PresetsFile.
+    """
+    presets_file = PresetsFile(presets=[], filepath=tmp_path / "presets.json")
+    new_preset = Preset(name="New Preset", items=[PresetItem(part_id="PA001", quantity=10)])
+
+    updated_presets_file = add_or_update_preset(presets_file, new_preset)
+
+    assert len(updated_presets_file.presets) == 1
+    assert updated_presets_file.presets[0] == new_preset
+    assert updated_presets_file.filepath == presets_file.filepath
+
+# TDD Anchor: Test adding a new preset to an existing PresetsFile
+def test_add_new_preset_to_existing_presets_file(tmp_path):
+    """
+    Test adding a new preset to an existing PresetsFile.
+    """
+    existing_preset = Preset(name="Existing Preset", items=[PresetItem(part_id="PB002", quantity=20)])
+    presets_file = PresetsFile(presets=[existing_preset], filepath=tmp_path / "presets.json")
+    new_preset = Preset(name="New Preset", items=[PresetItem(part_id="PA001", quantity=10)])
+
+    updated_presets_file = add_or_update_preset(presets_file, new_preset)
+
+    assert len(updated_presets_file.presets) == 2
+    assert existing_preset in updated_presets_file.presets
+    assert new_preset in updated_presets_file.presets
+
+# TDD Anchor: Test updating an existing preset by name
+def test_update_existing_preset(tmp_path):
+    """
+    Test updating an existing preset by name.
+    """
+    preset_item1 = PresetItem(part_id="PC003", quantity=30)
+    preset1_v1 = Preset(name="My Preset", items=[preset_item1])
+    
+    preset_item2 = PresetItem(part_id="PD004", quantity=5)
+    preset2 = Preset(name="Another Preset", items=[preset_item2])
+    
+    presets_file = PresetsFile(presets=[preset1_v1, preset2], filepath=tmp_path / "presets.json")
+
+    preset1_v2_items = [PresetItem(part_id="PC003_U", quantity=35), PresetItem(part_id="PE005", quantity=15)]
+    preset1_v2 = Preset(name="My Preset", items=preset1_v2_items)
+
+    updated_presets_file = add_or_update_preset(presets_file, preset1_v2)
+
+    assert len(updated_presets_file.presets) == 2
+    
+    # Check that the updated preset is present
+    found_updated = False
+    for p in updated_presets_file.presets:
+        if p.name == "My Preset":
+            assert p.items == preset1_v2_items
+            found_updated = True
+            break
+    assert found_updated, "Updated preset 'My Preset' not found or items mismatch."
+
+    # Check that the other preset is untouched
+    found_other = False
+    for p in updated_presets_file.presets:
+        if p.name == "Another Preset":
+            assert p.items == [preset_item2] # Original items
+            found_other = True
+            break
+    assert found_other, "Preset 'Another Preset' was modified or removed."
+
+
+# TDD Anchor: Test deleting an existing preset
+def test_delete_existing_preset(tmp_path):
+    """
+    Test deleting an existing preset by name.
+    """
+    preset1 = Preset(name="PresetToDelete", items=[PresetItem(part_id="PX001", quantity=1)])
+    preset2 = Preset(name="PresetToKeep", items=[PresetItem(part_id="PY002", quantity=2)])
+    presets_file = PresetsFile(presets=[preset1, preset2], filepath=tmp_path / "presets.json")
+
+    updated_presets_file = delete_preset_by_name(presets_file, "PresetToDelete")
+
+    assert len(updated_presets_file.presets) == 1
+    assert updated_presets_file.presets[0].name == "PresetToKeep"
+    assert updated_presets_file.filepath == presets_file.filepath
+    
+    # Verify original object is not modified if deepcopy is not used internally by the function
+    # This depends on the implementation of delete_preset_by_name
+    # For now, we assume it returns a new or modified PresetsFile object
+    assert len(presets_file.presets) == 2
+
+
+# TDD Anchor: Test attempting to delete a non-existent preset
+def test_delete_non_existent_preset(tmp_path):
+    """
+    Test attempting to delete a non-existent preset.
+    The list should remain unchanged and no error should occur.
+    """
+    preset1 = Preset(name="ExistingPreset1", items=[PresetItem(part_id="PA001", quantity=10)])
+    preset2 = Preset(name="ExistingPreset2", items=[PresetItem(part_id="PB002", quantity=20)])
+    presets_file = PresetsFile(presets=[preset1, preset2], filepath=tmp_path / "presets.json")
+
+    updated_presets_file = delete_preset_by_name(presets_file, "NonExistentPreset")
+
+    assert len(updated_presets_file.presets) == 2
+    assert presets_file.presets == updated_presets_file.presets # Expect no change
+    assert updated_presets_file.filepath == presets_file.filepath
+
+
+# TDD Anchor: Test get_preset_names with empty PresetsFile
+def test_get_preset_names_empty(tmp_path):
+    """
+    Test get_preset_names with an empty PresetsFile.
+    """
+    presets_file = PresetsFile(presets=[], filepath=tmp_path / "presets.json")
+    names = get_preset_names(presets_file)
+    assert names == []
+
+# TDD Anchor: Test get_preset_names with multiple presets
+def test_get_preset_names_multiple_presets(tmp_path):
+    """
+    Test get_preset_names with multiple presets, verifying correct names and order.
+    """
+    preset1 = Preset(name="Alpha Preset", items=[])
+    preset2 = Preset(name="Beta Preset", items=[])
+    preset3 = Preset(name="Gamma Preset", items=[])
+    # Intentionally adding in a different order to test if sorting/ordering is handled if required
+    # For now, assuming the order of the list is preserved.
+    presets_file = PresetsFile(presets=[preset2, preset1, preset3], filepath=tmp_path / "presets.json")
+    
+    names = get_preset_names(presets_file)
+    assert names == ["Beta Preset", "Alpha Preset", "Gamma Preset"]
+
+
+# TDD Anchor: Test getting an existing preset
+def test_get_preset_by_name_existing(tmp_path):
+    """
+    Test getting an existing preset by its name.
+    """
+    preset_item = PresetItem(part_id="TP001", quantity=10)
+    preset_to_find = Preset(name="MyTargetPreset", items=[preset_item])
+    other_preset = Preset(name="AnotherPreset", items=[])
+    presets_file = PresetsFile(
+        presets=[other_preset, preset_to_find],  # Order shouldn't matter
+        filepath=tmp_path / "presets.json"
     )
-    assert ml.name == "Test Monitor"
-    assert ml.parts == parts
-    assert ml.cron_schedule == "0 * * * *"
-    assert ml.recipients == ["test@example.com"]
-    assert ml.active is True # Default
-    assert ml.notify_condition == "on_change" # Default
-    assert ml.last_hash is None # Default
-    assert ml.misfire_grace_time == 3600 # Default
-    assert isinstance(ml.id, str) # Default factory for id
 
-def test_monitoring_list_valid_all_fields():
-    """Test valid MonitoringList creation with all fields specified."""
-    parts = [MonitoringPartItem(name_or_ipn="PART-B", quantity=5)]
-    ml = MonitoringList(
-        id="custom_id_123",
-        name="Full Monitor Task",
-        parts=parts,
-        active=False,
-        interval_minutes=30, # Added missing required field
-        cron_schedule="*/5 * * * *", # Every 5 minutes
-        recipients=["notify1@example.com", "notify2@example.org"],
-        notify_condition="always",
-        last_hash="previous_hash_abc",
-        misfire_grace_time=600
-    )
-    assert ml.id == "custom_id_123"
-    assert ml.active is False
-    assert ml.notify_condition == "always"
-    assert ml.last_hash == "previous_hash_abc"
-    assert ml.misfire_grace_time == 600
+    found_preset = get_preset_by_name(presets_file, "MyTargetPreset")
+    assert found_preset is not None
+    assert found_preset == preset_to_find
+    assert found_preset.name == "MyTargetPreset"
+    assert found_preset.items[0].part_id == "TP001"
 
-def test_monitoring_list_invalid_notify_condition():
-    """Test MonitoringList raises ValueError for invalid notify_condition."""
-    with pytest.raises(ValidationError) as excinfo:
-        MonitoringList(
-            name="Notify Test",
-            parts=[MonitoringPartItem(name_or_ipn="P", quantity=1)],
-            cron_schedule="* * * * *",
-            notify_condition="sometimes" # Invalid
-        )
-    assert "notify_condition must be 'always' or 'on_change'" in str(excinfo.value)
+# TDD Anchor: Test getting a non-existent preset
+def test_get_preset_by_name_non_existent(tmp_path):
+    """
+    Test getting a non-existent preset by its name. Should return None.
+    """
+    preset1 = Preset(name="ExistingPreset1", items=[])
+    presets_file = PresetsFile(presets=[preset1], filepath=tmp_path / "presets.json")
 
-def test_monitoring_list_invalid_recipient_email():
-    """Test MonitoringList raises ValueError for invalid email in recipients."""
-    with pytest.raises(ValidationError) as excinfo:
-        MonitoringList(
-            name="Email Test",
-            parts=[MonitoringPartItem(name_or_ipn="P", quantity=1)],
-            cron_schedule="* * * * *",
-            recipients=["valid@example.com", "invalid-email"]
-        )
-    assert "Invalid email format: invalid-email" in str(excinfo.value)
-
-def test_monitoring_list_empty_recipients_valid():
-    """Test MonitoringList is valid with an empty recipients list (uses default_factory)."""
-    ml = MonitoringList(
-        name="No Recipients",
-        parts=[MonitoringPartItem(name_or_ipn="P", quantity=1)],
-        interval_minutes=60, # Added required field
-        cron_schedule="* * * * *"
-    )
-    assert ml.recipients == []
-
-def test_monitoring_list_missing_required_fields():
-    """Test MonitoringList raises ValidationError for missing required fields."""
-    with pytest.raises(ValidationError): # Missing name
-        MonitoringList(
-            parts=[MonitoringPartItem(name_or_ipn="P", quantity=1)],
-            interval_minutes=60, # Added required field
-            cron_schedule="* * * * *"
-        )
-    with pytest.raises(ValidationError): # Missing parts
-        MonitoringList(name="No Parts", interval_minutes=60, cron_schedule="* * * * *")
-    with pytest.raises(ValidationError): # Missing interval_minutes (and cron_schedule)
-        MonitoringList(name="No Cron Or Interval", parts=[MonitoringPartItem(name_or_ipn="P", quantity=1)])
-
-# --- Tests for PresetsManager with MonitoringList CRUD operations ---
-# We need to import the PresetsManager class itself for these tests
-from src.inventree_order_calculator.presets_manager import PresetsManager
-
-@pytest.fixture
-def temp_presets_file(tmp_path):
-    """Provides a temporary file path for PresetsManager tests."""
-    return tmp_path / "test_manager_presets.json"
-
-@pytest.fixture
-def manager_instance(temp_presets_file):
-    """Provides a PresetsManager instance with a temporary file."""
-    # Ensure the file is clean before each test that uses this manager
-    if temp_presets_file.exists():
-        temp_presets_file.unlink()
-    return PresetsManager(config_path=temp_presets_file)
-
-def test_pm_add_monitoring_list_success(manager_instance):
-    """Test adding a new monitoring list successfully."""
-    ml_data = MonitoringList(
-        name="Monitor Alpha",
-        parts=[MonitoringPartItem(name_or_ipn="ALPHA01", quantity=10)],
-        interval_minutes=60, # Added required field
-        cron_schedule="0 0 * * 0", # Weekly on Sunday
-        recipients=["alpha_user@example.com"]
-    )
-    with patch.object(manager_instance, '_save_to_file', return_value=True) as mock_save:
-        success = manager_instance.add_monitoring_list(ml_data)
-    
-    assert success is True
-    mock_save.assert_called_once()
-    assert len(manager_instance.data.monitoring_lists) == 1
-    assert manager_instance.data.monitoring_lists[0].name == "Monitor Alpha"
-    assert manager_instance.data.monitoring_lists[0].id == ml_data.id # ID should be preserved
-
-def test_pm_add_monitoring_list_duplicate_id(manager_instance):
-    """Test adding a monitoring list with a duplicate ID fails."""
-    ml1 = MonitoringList(id="dup_id_1", name="First", parts=[], interval_minutes=60, cron_schedule="* * * * *")
-    ml2 = MonitoringList(id="dup_id_1", name="Second", parts=[], interval_minutes=30, cron_schedule="0 * * * *") # Same ID
-    
-    with patch.object(manager_instance, '_save_to_file', return_value=True) as mock_save_initial:
-        assert manager_instance.add_monitoring_list(ml1) is True
-    mock_save_initial.assert_called_once()
-    
-    with patch.object(manager_instance, '_save_to_file') as mock_save_duplicate:
-        success_dup = manager_instance.add_monitoring_list(ml2) # Attempt to add duplicate
-    
-    assert success_dup is False
-    mock_save_duplicate.assert_not_called() # Save should not be called on failure
-    assert len(manager_instance.data.monitoring_lists) == 1 # Only the first one should be there
-
-def test_pm_get_monitoring_lists(manager_instance):
-    """Test retrieving all monitoring lists."""
-    ml1 = MonitoringList(name="ML1", parts=[], interval_minutes=60, cron_schedule="* * * * *")
-    ml2 = MonitoringList(name="ML2", parts=[], interval_minutes=30, cron_schedule="0 * * * *")
-    manager_instance.data.monitoring_lists = [ml1, ml2] # Directly set for test
-
-    lists = manager_instance.get_monitoring_lists()
-    assert len(lists) == 2
-    assert lists[0].name == "ML1"
-    assert lists[1].name == "ML2"
-    # Ensure it returns a copy
-    lists.append(MonitoringList(name="ML3", parts=[], interval_minutes=10, cron_schedule="1 * * * *"))
-    assert len(manager_instance.data.monitoring_lists) == 2
-
-
-def test_pm_get_monitoring_list_by_id(manager_instance):
-    """Test retrieving a specific monitoring list by ID."""
-    ml1 = MonitoringList(id="find_me_id", name="Findable", parts=[], interval_minutes=60, cron_schedule="* * * * *")
-    manager_instance.data.monitoring_lists = [ml1]
-
-    found = manager_instance.get_monitoring_list_by_id("find_me_id")
-    assert found is not None
-    assert found.name == "Findable"
-
-    not_found = manager_instance.get_monitoring_list_by_id("id_does_not_exist")
-    assert not_found is None
-
-def test_pm_update_monitoring_list_success(manager_instance):
-    """Test updating an existing monitoring list."""
-    original_id = "update_id_1"
-    ml_orig = MonitoringList(id=original_id, name="Original Name", parts=[], interval_minutes=60, cron_schedule="* * * * *")
-    manager_instance.data.monitoring_lists = [ml_orig]
-
-    ml_updated_data = MonitoringList(id=original_id, name="Updated Name", parts=[], interval_minutes=30, cron_schedule="0 0 * * *", active=False)
-    
-    with patch.object(manager_instance, '_save_to_file', return_value=True) as mock_save:
-        success = manager_instance.update_monitoring_list(original_id, ml_updated_data)
-    
-    assert success is True
-    mock_save.assert_called_once()
-    assert len(manager_instance.data.monitoring_lists) == 1
-    updated_in_manager = manager_instance.data.monitoring_lists[0]
-    assert updated_in_manager.name == "Updated Name"
-    assert updated_in_manager.active is False
-
-def test_pm_update_monitoring_list_id_mismatch(manager_instance):
-    """Test update fails if list_id param and object's ID mismatch."""
-    ml = MonitoringList(id="id1", name="Name1", parts=[], interval_minutes=60, cron_schedule="* * * * *")
-    manager_instance.data.monitoring_lists = [ml]
-    ml_wrong_id_in_obj = MonitoringList(id="id2_wrong", name="Name2", parts=[], interval_minutes=30, cron_schedule="0 * * * *")
-
-    with patch.object(manager_instance, '_save_to_file') as mock_save:
-        success = manager_instance.update_monitoring_list("id1", ml_wrong_id_in_obj)
-    
-    assert success is False
-    mock_save.assert_not_called()
-
-def test_pm_update_monitoring_list_not_found(manager_instance):
-    """Test update fails if list_id to update is not found."""
-    ml_update_data = MonitoringList(id="non_existent", name="NonExistent", parts=[], interval_minutes=60, cron_schedule="* * * * *")
-    with patch.object(manager_instance, '_save_to_file') as mock_save:
-        success = manager_instance.update_monitoring_list("non_existent", ml_update_data)
-    
-    assert success is False
-    mock_save.assert_not_called()
-
-def test_pm_delete_monitoring_list_success(manager_instance):
-    """Test deleting an existing monitoring list."""
-    ml_to_delete = MonitoringList(id="delete_me", name="ToDelete", parts=[], interval_minutes=60, cron_schedule="* * * * *")
-    ml_to_keep = MonitoringList(id="keep_me", name="ToKeep", parts=[], interval_minutes=30, cron_schedule="0 * * * *")
-    manager_instance.data.monitoring_lists = [ml_to_delete, ml_to_keep]
-
-    with patch.object(manager_instance, '_save_to_file', return_value=True) as mock_save:
-        success = manager_instance.delete_monitoring_list("delete_me")
-        
-    assert success is True
-    mock_save.assert_called_once()
-    assert len(manager_instance.data.monitoring_lists) == 1
-    assert manager_instance.data.monitoring_lists[0].id == "keep_me"
-
-def test_pm_delete_monitoring_list_not_found(manager_instance):
-    """Test deleting a non-existent monitoring list."""
-    ml = MonitoringList(id="id1", name="Name1", parts=[], interval_minutes=60, cron_schedule="* * * * *")
-    manager_instance.data.monitoring_lists = [ml]
-    
-    with patch.object(manager_instance, '_save_to_file') as mock_save:
-        success = manager_instance.delete_monitoring_list("non_existent_delete_id")
-    assert success is False # Ensure it's False as per previous similar tests
-    mock_save.assert_not_called()
-
-
-# --- Test PresetsManager MonitoringList CRUD with File Interaction ---
-
-def test_pm_add_monitoring_list_persists(manager_instance, temp_presets_file):
-    """Test that adding a monitoring list correctly persists it to the file."""
-    ml_data = MonitoringList(
-        name="Persistent Monitor Task",
-        parts=[MonitoringPartItem(name_or_ipn="MONITOR_PART_001", quantity=5)],
-        interval_minutes=30, # Required field
-        recipients=["persist@example.com"],
-        email_config_name="persist_email_conf"
-    )
-    
-    assert manager_instance.add_monitoring_list(ml_data) is True
-    
-    # Verify by creating a new manager instance that loads from the same file
-    new_manager = PresetsManager(config_path=temp_presets_file)
-    loaded_lists = new_manager.get_monitoring_lists()
-    
-    assert len(loaded_lists) == 1
-    persisted_ml = loaded_lists[0]
-    assert persisted_ml.name == "Persistent Monitor Task"
-    assert persisted_ml.id == ml_data.id # ID is auto-generated by model if not provided
-    assert len(persisted_ml.parts) == 1
-    assert persisted_ml.parts[0].name_or_ipn == "MONITOR_PART_001"
-    assert persisted_ml.recipients == ["persist@example.com"]
-    assert persisted_ml.interval_minutes == 30
-    assert persisted_ml.email_config_name == "persist_email_conf"
-
-def test_pm_update_monitoring_list_persists(manager_instance, temp_presets_file):
-    """Test that updating a monitoring list correctly persists changes to the file."""
-    ml_initial_id = "update_persist_id"
-    ml_initial = MonitoringList(
-        id=ml_initial_id,
-        name="Initial Update Task",
-        parts=[MonitoringPartItem(name_or_ipn="PART_U1", quantity=1)],
-        interval_minutes=60,
-        active=True
-    )
-    manager_instance.add_monitoring_list(ml_initial)
-
-    # Create updated data
-    ml_updated_payload = ml_initial.model_copy(update={
-        "name": "Updated Task Name Persisted",
-        "active": False,
-        "recipients": ["updated_persist@example.com"],
-        "interval_minutes": 120
-    })
-
-    assert manager_instance.update_monitoring_list(ml_initial_id, ml_updated_payload) is True
-
-    # Verify by loading with a new manager
-    new_manager = PresetsManager(config_path=temp_presets_file)
-    loaded_ml = new_manager.get_monitoring_list_by_id(ml_initial_id)
-    
-    assert loaded_ml is not None
-    assert loaded_ml.name == "Updated Task Name Persisted"
-    assert loaded_ml.active is False
-    assert loaded_ml.recipients == ["updated_persist@example.com"]
-    assert loaded_ml.interval_minutes == 120
-
-def test_pm_delete_monitoring_list_persists(manager_instance, temp_presets_file):
-    """Test that deleting a monitoring list correctly removes it from the file."""
-    ml1_id = "delete_persist_1"
-    ml1 = MonitoringList(id=ml1_id, name="Delete Me Persist", parts=[], interval_minutes=10)
-    ml2_id = "delete_persist_2"
-    ml2 = MonitoringList(id=ml2_id, name="Keep Me Persist", parts=[], interval_minutes=20)
-    
-    manager_instance.add_monitoring_list(ml1)
-    manager_instance.add_monitoring_list(ml2)
-
-    assert manager_instance.delete_monitoring_list(ml1_id) is True
-
-    # Verify by loading
-    new_manager = PresetsManager(config_path=temp_presets_file)
-    assert new_manager.get_monitoring_list_by_id(ml1_id) is None
-    assert new_manager.get_monitoring_list_by_id(ml2_id) is not None
-    assert len(new_manager.get_monitoring_lists()) == 1
-    assert new_manager.get_monitoring_lists()[0].id == ml2_id
-    
-# --- Tests for PresetsManager EmailConfig CRUD operations ---
-
-def test_pm_add_email_config_success(manager_instance):
-    """Test adding a new email config successfully."""
-    ec_data = EmailConfig(name="Default SMTP", smtp_server="smtp.example.com", smtp_port=587, username="user", password="password")
-    with patch.object(manager_instance, '_save_to_file', return_value=True) as mock_save:
-        success = manager_instance.add_or_update_email_config(ec_data)
-    
-    assert success is True
-    mock_save.assert_called_once()
-    assert len(manager_instance.data.email_configs) == 1
-    assert manager_instance.data.email_configs[0].name == "Default SMTP"
-
-def test_pm_add_email_config_duplicate_name_updates(manager_instance):
-    """Test adding an email config with a duplicate name updates the existing one."""
-    ec1 = EmailConfig(name="Default SMTP", smtp_server="smtp.example.com", smtp_port=587)
-    ec2 = EmailConfig(name="Default SMTP", smtp_server="mail.example.org", smtp_port=465, use_tls=False) # Same name, different host
-    
-    with patch.object(manager_instance, '_save_to_file', return_value=True) as mock_save1:
-        assert manager_instance.add_or_update_email_config(ec1) is True
-    mock_save1.assert_called_once()
-    
-    with patch.object(manager_instance, '_save_to_file', return_value=True) as mock_save2:
-        assert manager_instance.add_or_update_email_config(ec2) is True # Should update
-    mock_save2.assert_called_once()
-    
-    assert len(manager_instance.data.email_configs) == 1
-    assert manager_instance.data.email_configs[0].smtp_server == "mail.example.org"
-    assert manager_instance.data.email_configs[0].smtp_port == 465
-
-def test_pm_get_email_configs(manager_instance):
-    """Test retrieving all email configs."""
-    ec1 = EmailConfig(name="EC1", smtp_server="h1", smtp_port=1)
-    ec2 = EmailConfig(name="EC2", smtp_server="h2", smtp_port=2)
-    manager_instance.data.email_configs = [ec1, ec2]
-
-    configs = manager_instance.get_email_configs()
-    assert len(configs) == 2
-    assert configs[0].name == "EC1"
-    assert configs[1].name == "EC2"
-    # Ensure it returns a copy
-    configs.append(EmailConfig(name="EC3", smtp_server="h3", smtp_port=3))
-    assert len(manager_instance.data.email_configs) == 2
-
-def test_pm_get_email_config_by_name_success(manager_instance):
-    """Test retrieving an existing email config by name."""
-    ec1 = EmailConfig(name="find_me_ec", smtp_server="h1", smtp_port=1)
-    manager_instance.data.email_configs = [ec1]
-
-    found = manager_instance.get_email_config_by_name("find_me_ec")
-    assert found is not None
-    assert found.name == "find_me_ec"
-
-def test_pm_get_email_config_by_name_not_found(manager_instance):
-    """Test retrieving a non-existent email config returns None."""
-    assert manager_instance.get_email_config_by_name("ec_does_not_exist") is None
-
-def test_pm_update_email_config_success_renaming(manager_instance):
-    """Test updating an existing email config, including renaming via payload."""
-    original_name = "OriginalEC"
-    ec_orig = EmailConfig(name=original_name, smtp_server="original.host", smtp_port=123)
-    manager_instance.data.email_configs = [ec_orig]
-
-    # The add_or_update_email_config function updates based on the name *in the payload*.
-    # So, to "update" 'OriginalEC', we pass new data with the same name if we don't want to rename,
-    # or a new name in the payload if we intend to rename.
-    # The current PresetsManager.add_or_update_email_config replaces based on the name in the new config.
-    # Let's test updating an existing one by providing the same name with different fields.
-    ec_updated_data_same_name = EmailConfig(name=original_name, smtp_server="updated.host", smtp_port=456, use_tls=True)
-    
-    with patch.object(manager_instance, '_save_to_file', return_value=True) as mock_save:
-        success = manager_instance.add_or_update_email_config(ec_updated_data_same_name)
-    
-    assert success is True
-    mock_save.assert_called_once()
-    assert len(manager_instance.data.email_configs) == 1
-    updated_in_manager = manager_instance.data.email_configs[0]
-    assert updated_in_manager.name == original_name # Name remains the same
-    assert updated_in_manager.smtp_server == "updated.host"
-    assert updated_in_manager.smtp_port == 456
-    assert updated_in_manager.use_tls is True
-
-    # Test renaming: add_or_update_email_config with a new name effectively adds a new one
-    # if the old name is different. If we want to "rename" `OriginalEC` to `NewECName`,
-    # we'd add `NewECName` and delete `OriginalEC`.
-    # The current `add_or_update_email_config` will simply add `NewECName` if it's different.
-    # If the intention is to replace "OriginalEC" with "NewECName" data,
-    # the manager's `update_email_config(old_name, new_config_data)` would be more appropriate.
-    # Since we only have `add_or_update_email_config`, it finds by `email_config_data.name`.
-    # So, "updating" means the name in the payload matches an existing one.
-
-def test_pm_update_email_config_actually_adds_if_name_different(manager_instance):
-    """Test that add_or_update_email_config adds a new config if the name in payload is different."""
-    ec_orig = EmailConfig(name="OriginalEC", smtp_server="original.host", smtp_port=123)
-    manager_instance.add_or_update_email_config(ec_orig) # Saved once
-
-    ec_new_name_data = EmailConfig(name="NewNameEC", smtp_server="new.host", smtp_port=789)
-    
-    with patch.object(manager_instance, '_save_to_file', return_value=True) as mock_save_new:
-        success = manager_instance.add_or_update_email_config(ec_new_name_data)
-
-    assert success is True
-    mock_save_new.assert_called_once() # Saved again
-    assert len(manager_instance.data.email_configs) == 2
-    assert manager_instance.get_email_config_by_name("OriginalEC") is not None
-    assert manager_instance.get_email_config_by_name("NewNameEC") is not None
-
-
-def test_pm_delete_email_config_success(manager_instance):
-    """Test deleting an existing email config."""
-    ec_to_delete = EmailConfig(name="delete_ec_me", smtp_server="h", smtp_port=1)
-    ec_to_keep = EmailConfig(name="keep_ec_me", smtp_server="h2", smtp_port=2)
-    manager_instance.data.email_configs = [ec_to_delete, ec_to_keep]
-
-    with patch.object(manager_instance, '_save_to_file', return_value=True) as mock_save:
-        success = manager_instance.delete_email_config_by_name("delete_ec_me")
-        
-    assert success is True
-    mock_save.assert_called_once()
-    assert len(manager_instance.data.email_configs) == 1
-    assert manager_instance.data.email_configs[0].name == "keep_ec_me"
-
-def test_pm_delete_email_config_not_found(manager_instance):
-    """Test deleting a non-existent email config."""
-    ec = EmailConfig(name="ec1", smtp_server="h", smtp_port=1)
-    manager_instance.data.email_configs = [ec]
-    
-    with patch.object(manager_instance, '_save_to_file') as mock_save:
-        success = manager_instance.delete_email_config_by_name("non_existent_ec_id")
-    assert success is False
-    mock_save.assert_not_called()
-
-def test_pm_get_email_config_names(manager_instance):
-    """Test retrieving all email config names."""
-    ec1 = EmailConfig(name="SMTP Main", smtp_server="h1", smtp_port=1)
-    ec2 = EmailConfig(name="Backup Mail", smtp_server="h2", smtp_port=2)
-    manager_instance.data.email_configs = [ec1, ec2]
-
-    names = manager_instance.get_email_config_names()
-    assert len(names) == 2
-    assert "SMTP Main" in names
-    assert "Backup Mail" in names
-
-# --- Test PresetsManager EmailConfig CRUD with File Interaction ---
-
-def test_pm_add_email_config_persists(manager_instance, temp_presets_file):
-    """Test that adding an email config correctly persists it to the file."""
-    ec_data = EmailConfig(name="Persistent Email", smtp_server="persist.smtp.com", smtp_port=555, smtp_user="persist_user")
-    
-    assert manager_instance.add_or_update_email_config(ec_data) is True
-    
-    new_manager = PresetsManager(config_path=temp_presets_file)
-    loaded_ec = new_manager.get_email_config_by_name("Persistent Email")
-    
-    assert loaded_ec is not None
-    assert loaded_ec.smtp_server == "persist.smtp.com"
-    assert loaded_ec.smtp_port == 555
-    assert loaded_ec.smtp_user == "persist_user"
-
-def test_pm_update_email_config_persists(manager_instance, temp_presets_file):
-    """Test that updating an email config correctly persists changes."""
-    ec_initial_name = "UpdatePersistEC"
-    ec_initial = EmailConfig(name=ec_initial_name, smtp_server="initial.host", smtp_port=111)
-    manager_instance.add_or_update_email_config(ec_initial)
-
-    ec_updated_payload = EmailConfig(name=ec_initial_name, smtp_server="updated.persist.host", smtp_port=222, use_tls=True)
-    
-    assert manager_instance.add_or_update_email_config(ec_updated_payload) is True
-
-    new_manager = PresetsManager(config_path=temp_presets_file)
-    loaded_ec = new_manager.get_email_config_by_name(ec_initial_name)
-    
-    assert loaded_ec is not None
-    assert loaded_ec.smtp_server == "updated.persist.host"
-    assert loaded_ec.smtp_port == 222
-    assert loaded_ec.use_tls is True
-
-def test_pm_delete_email_config_persists(manager_instance, temp_presets_file):
-    """Test that deleting an email config correctly removes it from the file."""
-    ec1_name = "delete_persist_ec1"
-    ec1 = EmailConfig(name=ec1_name, smtp_server="h1", smtp_port=1)
-    ec2_name = "keep_persist_ec2"
-    ec2 = EmailConfig(name=ec2_name, smtp_server="h2", smtp_port=2)
-    
-    manager_instance.add_or_update_email_config(ec1)
-    manager_instance.add_or_update_email_config(ec2)
-
-    assert manager_instance.delete_email_config_by_name(ec1_name) is True
-
-    new_manager = PresetsManager(config_path=temp_presets_file)
-    assert new_manager.get_email_config_by_name(ec1_name) is None
-    assert new_manager.get_email_config_by_name(ec2_name) is not None
-    assert len(new_manager.get_email_configs()) == 1
-    assert new_manager.get_email_configs()[0].name == ec2_name
+    found_preset = get_preset_by_name(presets_file, "NonExistentPresetName")
+    assert found_preset is None

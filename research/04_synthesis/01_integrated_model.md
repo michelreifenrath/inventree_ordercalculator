@@ -1,113 +1,81 @@
-# Synthesis: Integrated Model for Automated Monitoring & Notification
+# Integrated Model: Testing Streamlit Applications
 
-This document presents an integrated conceptual model for the "Automated Parts List Monitoring and Email Notification" feature, synthesizing the findings from the research and analysis phases. It outlines the core components, their interactions, and key architectural considerations.
+This model synthesizes the findings into a recommended approach for applying Test-Driven Development (TDD) principles to Streamlit applications, addressing its unique reactive nature.
 
-## I. Core Components and Responsibilities
+**Challenge:** Streamlit's automatic script rerun on interaction makes traditional testing difficult.
 
-The system will be built around two new primary services, supported by existing and modified modules:
+**Solution:** A layered testing strategy centered around Streamlit's native `AppTest` framework, orchestrated by `pytest`, and isolated using standard mocking techniques.
 
-1.  **`MonitoringService`**:
-    *   **Responsibilities**:
-        *   Manages the lifecycle of monitoring tasks (defined in [`presets.json`](presets.json)).
-        *   Schedules and triggers periodic checks based on individual cron schedules using `APScheduler` (initially, in-process).
-        *   For each triggered task:
-            *   Retrieves parts list and parameters from `PresetsManager`.
-            *   Invokes the `Calculator` to perform the availability check.
-            *   Handles the `on_change` notification logic:
-                *   Serializes the relevant parts of the `Calculator` result (Fehlmengenliste, kritische Teile) into a canonical JSON string.
-                *   Computes a hash (SHA256) of this string.
-                *   Compares with `last_hash` stored for the task (via `PresetsManager`).
-            *   If a notification is warranted (due to `notify_condition == "always"` or `on_change` with hash mismatch):
-                *   Notifies registered observers (e.g., `EmailNotificationObserver`) with the task details and calculation results.
-                *   If `on_change` and notified, updates `last_hash` for the task via `PresetsManager`.
-        *   Handles errors during task execution (API errors, calculation errors) with retry logic (`tenacity`) and admin notifications for persistent issues.
-    *   **Key Dependencies**: `APScheduler`, `PresetsManager`, `Calculator`, `Config`, `NotificationDispatcher` (Observer pattern subject).
+---
 
-2.  **`EmailService`** (or more generally, part of a notification subsystem):
-    *   **Responsibilities**:
-        *   Receives notification requests (containing task details and calculation results) from the `MonitoringService` (likely via an `EmailNotificationObserver`).
-        *   Generates email content:
-            *   Uses `Jinja2` templates for both HTML and plain-text versions.
-            *   Populates templates with data from the calculation result.
-            *   Uses `premailer` to inline CSS for HTML emails.
-        *   Sends emails:
-            *   Uses `smtplib` for SMTP communication.
-            *   Retrieves SMTP configuration (`EMAIL_SMTP_SERVER`, credentials, etc.) from `Config` (sourced from environment variables).
-            *   Implements secure connection protocols (TLS/SSL).
-            *   Handles email sending errors with retry logic (`tenacity`) and admin notifications for persistent failures.
-        *   Checks `GLOBAL_EMAIL_NOTIFICATIONS_ENABLED` flag from `Config` before sending.
-    *   **Key Dependencies**: `Jinja2`, `premailer`, `smtplib`, `Config`, `tenacity`.
+**Core Components:**
 
-3.  **`NotificationDispatcher` (Conceptual - Observer Pattern Subject)**:
-    *   **Responsibilities**:
-        *   Manages a list of observers (e.g., `EmailNotificationObserver`, potentially `SlackNotificationObserver` in the future).
-        *   When `MonitoringService` detects a need for notification, it calls `NotificationDispatcher.notify()`.
-        *   The dispatcher then calls the `update()` method on all registered observers, passing the necessary data.
-    *   This component formalizes the Observer pattern for decoupling `MonitoringService` from specific notification mechanisms.
+1.  **`pytest` (Test Runner & Framework):**
+    *   Orchestrates test discovery and execution.
+    *   Provides fixtures for setup/teardown (e.g., initializing mocks).
+    *   Integrates plugins (`pytest-mock`, `pytest-cov`) for enhanced functionality.
 
-## II. Supporting Modules (Existing/Modified)
+2.  **`streamlit.testing.v1.AppTest` (Streamlit Integration Layer):**
+    *   The primary tool for testing the Streamlit UI layer.
+    *   Simulates the Streamlit runtime environment and script reruns *without* a browser.
+    *   Provides methods to:
+        *   Load app scripts (`AppTest.from_file(...)`).
+        *   Simulate user interactions (`.button(...).click()`, `.text_input(...).input(...)`).
+        *   Manipulate and inspect `st.session_state`.
+        *   Access and assert the state/value of rendered UI elements (`.dataframe`, `.markdown`, `.button`, etc.).
 
-1.  **`PresetsManager`**:
-    *   Extended to store and manage `monitoring_lists` within [`presets.json`](presets.json) as per the specification.
-    *   Provides CRUD operations for these lists, accessible by both CLI and Streamlit UI.
-    *   Handles loading and saving of `last_hash` for each monitoring task.
-    *   Ensures reasonably atomic writes to `presets.json`.
+3.  **Mocking Libraries (`unittest.mock` / `pytest-mock`):**
+    *   Used to isolate the Streamlit application from external dependencies (APIs, databases, complex calculations) during tests.
+    *   Ensures tests focus on the Streamlit logic and UI behavior, not the dependencies.
 
-2.  **`Calculator`**:
-    *   Existing logic is used to perform the parts availability check.
-    *   Its output (specifically "Fehlmengenliste" and "kritische Teile") must be clearly defined and consistently structured to enable reliable serialization and hashing for the `on_change` logic.
+---
 
-3.  **`Config`**:
-    *   Extended to manage email SMTP configurations and the `GLOBAL_EMAIL_NOTIFICATIONS_ENABLED` flag, loaded from environment variables / `.env` file.
-    *   Provides these configurations to `EmailService` and potentially `MonitoringService`.
+**Testing Layers:**
 
-4.  **CLI Module (e.g., using `Typer`)**:
-    *   Extended with `monitor` subcommands (`list`, `add`, `update`, `delete`, `activate`, `deactivate`, `run`) as specified.
-    *   Interacts with `PresetsManager` for CRUD and activation.
-    *   Interacts with `MonitoringService` (or an interface to it) for manual `run` and potentially for querying dynamic task status.
+1.  **Unit Testing (Standard `pytest`):**
+    *   **Target:** Pure Python functions, classes, or modules (e.g., data processing, API client logic, calculation functions) that *do not* directly involve `st.` calls.
+    *   **Tools:** `pytest`, `unittest.mock`.
+    *   **Goal:** Verify the correctness of individual logic units in isolation.
 
-5.  **Streamlit UI Module**:
-    *   New section for managing monitoring tasks, mirroring CLI functionality.
-    *   Uses Streamlit forms for input (including cron strings, parts lists, recipients).
-    *   Displays task lists and their status (static from `PresetsManager`, dynamic potentially queried from `MonitoringService`).
-    *   Relies on `PresetsManager` and potentially an interface to `MonitoringService`.
+2.  **Integration Testing (`AppTest` + `pytest`):**
+    *   **Target:** The Streamlit application script (`app.py`) or individual component scripts. Tests how UI elements interact, how state changes affect the UI, and how Streamlit code calls backend logic (mocked).
+    *   **Tools:** `AppTest`, `pytest`, Mocking libraries.
+    *   **Goal:** Verify the integration between UI elements, state management, and (mocked) backend logic within the Streamlit execution context. This is the primary focus for TDD of the Streamlit part.
 
-## III. Key Architectural Principles & Patterns
+3.  **End-to-End (E2E) Testing (Optional, Separate Tools):**
+    *   **Target:** The fully deployed or locally running application in a real browser.
+    *   **Tools:** Selenium, Playwright, Cypress.
+    *   **Goal:** Verify complete user flows through the actual rendered UI. (Generally considered outside the scope of TDD focused on `AppTest`).
 
-*   **Dependency Injection**: Core services (`MonitoringService`, `EmailService`) will receive their dependencies (other services, managers, config objects) upon instantiation.
-*   **Observer Pattern**: For notifications, decoupling `MonitoringService` (event source) from `EmailService` and other potential notifiers (event listeners).
-*   **Strategy Pattern**: Potentially for different calculation types within `Calculator` or different notification channels if complexity grows.
-*   **Layered Error Handling**: Each component handles its own errors; `MonitoringService` orchestrates retries and escalations for tasks. `tenacity` will be used for retry logic.
-*   **Structured Logging**: `logging` module + `structlog` for comprehensive, machine-readable logs across all components.
-*   **Configuration First**: Secure and flexible configuration via environment variables (`python-dotenv`) and `Config` objects.
-*   **Security by Design**:
-    *   Secure credential management.
-    *   Input validation (cron strings, email data).
-    *   Output escaping/sanitization for HTML emails (Jinja2 autoescape, `bleach`).
+---
 
-## IV. Data Flow for a Monitoring Check
+**Conceptual Workflow (`AppTest` Integration Tests):**
 
-1.  `APScheduler` (managed by `MonitoringService`) triggers a scheduled job for a specific `task_id`.
-2.  `MonitoringService` retrieves the task configuration (parts, recipients, `notify_condition`, `last_hash`) from `PresetsManager`.
-3.  `MonitoringService` calls `Calculator` with the task's parts list.
-4.  `Calculator` performs the check and returns results (including Fehlmengenliste, kritische Teile).
-5.  `MonitoringService` serializes relevant parts of the result and computes a `current_hash`.
-6.  **If `notify_condition == "always"` OR (`notify_condition == "on_change"` AND `current_hash != last_hash`):**
-    a.  `MonitoringService` calls `NotificationDispatcher.notify(task_details, calculation_results)`.
-    b.  `NotificationDispatcher` calls `EmailNotificationObserver.update()`.
-    c.  `EmailNotificationObserver` (which holds/gets an `EmailService` instance) instructs `EmailService` to prepare and send the email.
-    d.  `EmailService` generates HTML/text content using `Jinja2` and `premailer`.
-    e.  `EmailService` sends the email via SMTP, handling retries.
-    f.  If email sent successfully and `on_change` was the trigger, `MonitoringService` updates `last_hash` for the task via `PresetsManager`.
-7.  Errors at any stage are logged; persistent errors trigger admin notifications (via `EmailService` if possible, or other means).
+```
+1. Write Test (Fail)  <---------------------------------------+
+   - Define test case using `pytest`.                         |
+   - Use `AppTest` to target app/component script.            | Refactor
+   - Simulate interaction(s) (`at.widget.action().run()`).    |
+   - Assert expected UI state or `session_state` (will fail). |
+           |                                                  |
+           v                                                  |
+2. Write Code (Pass)                                          |
+   - Implement minimal Streamlit code (`app.py`) to make      |
+     the assertion pass (e.g., add widget, update state).     |
+           |                                                  |
+           v                                                  |
+3. Refactor (Optional)----------------------------------------+
+   - Improve Streamlit code structure or test clarity
+     while ensuring tests still pass.
+```
 
-## V. Scalability Path
+---
 
-*   **Phase 1 (Current Scope):** `MonitoringService` runs `APScheduler` in-process. Suitable for moderate task loads.
-*   **Phase 2 (Future):** If needed, transition to `Celery` for distributed task execution.
-    *   `MonitoringService` becomes a task producer, submitting jobs to Celery.
-    *   `celery beat` handles scheduling.
-    *   Celery workers execute the checks.
-    *   Requires a message broker (Redis/RabbitMQ).
+**Key Patterns in the Model:**
 
-This integrated model provides a modular, testable, and extensible framework for the automated monitoring feature, aligning with the project's specifications and Python best practices.
+*   **State-Based Assertions:** Focus tests on the *result* (UI element values, `session_state`) after interactions, letting `AppTest` handle the implicit reruns.
+*   **Component Isolation:** Use `AppTest.from_file()` to test smaller UI parts independently before integrating.
+*   **Mocking Boundaries:** Clearly separate Streamlit UI logic from backend/external logic using mocks during integration tests.
+*   **CI Automation:** Integrate `pytest` execution into CI pipelines for continuous validation.
+
+This integrated model provides a robust framework for developing and maintaining testable Streamlit applications.

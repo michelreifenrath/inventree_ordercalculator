@@ -8,23 +8,6 @@ from requests.exceptions import HTTPError, RequestException
 
 from .models import PartData, BomItemData # Import PartData and BomItemData
 
-# Custom Exception Classes
-class ApiClientError(Exception):
-    """Base exception for API client errors."""
-    pass
-
-class ApiAuthenticationError(ApiClientError):
-    """Exception for authentication errors."""
-    pass
-
-class ApiConnectionError(ApiClientError):
-    """Exception for connection errors."""
-    pass
-
-class PartNotFoundError(ApiClientError):
-    """Exception for when a part is not found."""
-    pass
-
 logger = logging.getLogger(__name__)
 
 class ApiClient:
