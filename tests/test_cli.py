@@ -181,7 +181,7 @@ def test_cli_success(MockConsolePrint, MockApiClient, MockAppConfig): # Added Mo
     assert subassemblies_build_table is not None, "Subassemblies to Build table not captured"
 
     # --- Check Parts to Order Table ---
-    expected_parts_headers = ["Part ID", "Part Name", "Needed", "Total In Stock", "Required for Build Orders", "Required for Sales Orders", "Available", "To Order", "On Order", "Gehört zu"]
+    expected_parts_headers = ["Part ID", "Optional", "Part Name", "Needed", "Total In Stock", "Required for Build Orders", "Required for Sales Orders", "Available", "To Order", "On Order", "Gehört zu"]
     assert [col.header for col in parts_order_table.columns] == expected_parts_headers
     assert len(parts_order_table.rows) == 2
 
@@ -190,19 +190,19 @@ def test_cli_success(MockConsolePrint, MockApiClient, MockAppConfig): # Added Mo
     expected_part_100_name_cell = f"[link={link_base}/part/100/]Resistor 1k[/link]"
     expected_part_200_name_cell = f"[link={link_base}/part/200/]Capacitor 10uF[/link]"
 
-    # Row 0 (Part 100)
-    assert [list(col.cells)[0] for col in parts_order_table.columns] == ['100', expected_part_100_name_cell, '12.00', '15.00', '10.00', '2.00', '5.00', '10.00', '2.00', '100']
-    # Row 1 (Part 200)
-    assert [list(col.cells)[1] for col in parts_order_table.columns] == ['200', expected_part_200_name_cell, '6.00', '8.00', '5.00', '1.00', '3.00', '5.00', '1.00', '200']
+    # Row 0 (Part 100) - Added Optional column with ✗ (default False)
+    assert [list(col.cells)[0] for col in parts_order_table.columns] == ['100', '✗', expected_part_100_name_cell, '12.00', '15.00', '10.00', '2.00', '5.00', '10.00', '2.00', '100']
+    # Row 1 (Part 200) - Added Optional column with ✗ (default False)
+    assert [list(col.cells)[1] for col in parts_order_table.columns] == ['200', '✗', expected_part_200_name_cell, '6.00', '8.00', '5.00', '1.00', '3.00', '5.00', '1.00', '200']
 
     # --- Check Subassemblies to Build Table ---
-    expected_build_headers = ["Part ID", "Part Name", "Needed", "Total In Stock", "Required for Build Orders", "Required for Sales Orders", "Available", "In Production", "To Build", "Gehört zu"]
+    expected_build_headers = ["Part ID", "Optional", "Part Name", "Needed", "Total In Stock", "Required for Build Orders", "Required for Sales Orders", "Available", "In Production", "To Build", "Gehört zu"]
     assert [col.header for col in subassemblies_build_table.columns] == expected_build_headers
     assert len(subassemblies_build_table.rows) == 1
     
     expected_subassembly_300_name_cell = f"[link={link_base}/part/300/]Subassembly A[/link]"
-    # Row 0 (Part 300)
-    assert [list(col.cells)[0] for col in subassemblies_build_table.columns] == ['300', expected_subassembly_300_name_cell, '5.00', '5.00', '4.00', '1.00', '1.00', '1.00', '4.00', '300']
+    # Row 0 (Part 300) - Added Optional column with ✗ (default False)
+    assert [list(col.cells)[0] for col in subassemblies_build_table.columns] == ['300', '✗', expected_subassembly_300_name_cell, '5.00', '5.00', '4.00', '1.00', '1.00', '1.00', '4.00', '300']
     
     assert "Total Estimated Cost:" not in result.stdout
     # Check that titles are still in stdout
@@ -350,13 +350,13 @@ def test_cli_success_no_instance_url(MockConsolePrint, MockApiClient, MockAppCon
     assert parts_order_table is not None, "Parts to Order table not captured (no instance URL)"
     assert subassemblies_build_table is not None, "Subassemblies to Build table not captured (no instance URL)"
 
-    # Check Part Name column for plain text
+    # Check Part Name column for plain text (now at index 2 due to Optional column)
     # Row 0 (Part 100) - Name should be plain
-    assert list(list(parts_order_table.columns)[1].cells)[0] == 'Resistor 1k'
+    assert list(list(parts_order_table.columns)[2].cells)[0] == 'Resistor 1k'
     # Row 1 (Part 200) - Name should be plain
-    assert list(list(parts_order_table.columns)[1].cells)[1] == 'Capacitor 10uF'
+    assert list(list(parts_order_table.columns)[2].cells)[1] == 'Capacitor 10uF'
     # Subassembly Row 0 (Part 300) - Name should be plain
-    assert list(list(subassemblies_build_table.columns)[1].cells)[0] == 'Subassembly A'
+    assert list(list(subassemblies_build_table.columns)[2].cells)[0] == 'Subassembly A'
 @mock.patch('inventree_order_calculator.cli.AppConfig')
 @mock.patch('inventree_order_calculator.cli.ApiClient')
 @mock.patch('inventree_order_calculator.cli.OrderCalculator', new=MockOrderCalculator)
@@ -452,3 +452,106 @@ def test_cli_show_consumables_default(MockConsolePrint, MockApiClient, MockAppCo
     assembly_ids_in_build_table = {list(col.cells)[idx] for idx in range(len(subassemblies_build_table.rows)) for col_idx, col in enumerate(subassemblies_build_table.columns) if col_idx == 0}
     assert "300" in assembly_ids_in_build_table
     assert "400" in assembly_ids_in_build_table
+
+
+def test_cli_optional_column_display():
+    """Test that CLI displays Optional column with correct ✓/✗ symbols."""
+    from inventree_order_calculator.cli import app
+    from inventree_order_calculator.models import CalculatedPart, OutputTables
+
+    # Create test data with mixed optional/required parts
+    required_part = CalculatedPart(
+        pk=100, name="Required Part", is_purchaseable=True, is_assembly=False,
+        total_required=10.0, to_order=5.0, is_optional=False
+    )
+
+    optional_part = CalculatedPart(
+        pk=200, name="Optional Part", is_purchaseable=True, is_assembly=False,
+        total_required=5.0, to_order=3.0, is_optional=True
+    )
+
+    required_assembly = CalculatedPart(
+        pk=300, name="Required Assembly", is_purchaseable=False, is_assembly=True,
+        total_required=2.0, to_build=1.0, is_optional=False
+    )
+
+    optional_assembly = CalculatedPart(
+        pk=400, name="Optional Assembly", is_purchaseable=False, is_assembly=True,
+        total_required=1.0, to_build=1.0, is_optional=True
+    )
+
+    # Create mock result
+    mock_result = OutputTables(
+        parts_to_order=[required_part, optional_part],
+        subassemblies_to_build=[required_assembly, optional_assembly]
+    )
+
+    # Mock the OrderCalculator to return our test data
+    class MockOrderCalculatorOptional:
+        def __init__(self, api_client):
+            pass
+
+        def calculate_orders(self, input_parts):
+            return mock_result
+
+    runner = CliRunner()
+
+    with mock.patch('inventree_order_calculator.cli.AppConfig') as MockAppConfig, \
+         mock.patch('inventree_order_calculator.cli.ApiClient') as MockApiClient, \
+         mock.patch('inventree_order_calculator.cli.OrderCalculator', new=MockOrderCalculatorOptional), \
+         mock.patch('inventree_order_calculator.cli.Console.print', side_effect=mock_console_print_side_effect):
+
+        # Clear captured tables for this test
+        captured_tables_for_test_cli_success.clear()
+
+        # Configure mocks
+        mock_config_instance = MockAppConfig.return_value
+        mock_config_instance.inventree_instance_url = "https://test.inventree.com"
+
+        # Run CLI
+        result = runner.invoke(app, ["100:1"])
+
+        # Verify command succeeded
+        assert result.exit_code == 0
+
+        # Get captured tables
+        parts_order_table = None
+        subassemblies_build_table = None
+
+        for tbl in captured_tables_for_test_cli_success:
+            current_table_title_plain = None
+            if tbl.title:
+                if isinstance(tbl.title, Text):
+                    current_table_title_plain = tbl.title.plain
+                elif isinstance(tbl.title, str):
+                    current_table_title_plain = tbl.title
+
+            if current_table_title_plain == "Parts to Order":
+                parts_order_table = tbl
+            elif current_table_title_plain == "Subassemblies to Build":
+                subassemblies_build_table = tbl
+
+        assert parts_order_table is not None, "Parts to Order table not captured"
+        assert subassemblies_build_table is not None, "Subassemblies to Build table not captured"
+
+        # Check Parts to Order table has Optional column
+        assert "Optional" in [col.header for col in parts_order_table.columns]
+
+        # Check Optional column values for parts
+        optional_col_index = [col.header for col in parts_order_table.columns].index("Optional")
+        part_100_optional = list(parts_order_table.columns[optional_col_index].cells)[0]
+        part_200_optional = list(parts_order_table.columns[optional_col_index].cells)[1]
+
+        assert part_100_optional == "✗"  # Required part should show ✗
+        assert part_200_optional == "✓"  # Optional part should show ✓
+
+        # Check Subassemblies to Build table has Optional column
+        assert "Optional" in [col.header for col in subassemblies_build_table.columns]
+
+        # Check Optional column values for assemblies
+        optional_col_index = [col.header for col in subassemblies_build_table.columns].index("Optional")
+        assembly_300_optional = list(subassemblies_build_table.columns[optional_col_index].cells)[0]
+        assembly_400_optional = list(subassemblies_build_table.columns[optional_col_index].cells)[1]
+
+        assert assembly_300_optional == "✗"  # Required assembly should show ✗
+        assert assembly_400_optional == "✓"  # Optional assembly should show ✓

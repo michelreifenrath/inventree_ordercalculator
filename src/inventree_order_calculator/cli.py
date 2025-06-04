@@ -115,6 +115,7 @@ def main(
         else:
             parts_table = Table(title="Parts to Order", show_header=True, header_style="bold magenta")
             parts_table.add_column("Part ID", justify="right")
+            parts_table.add_column("Optional", justify="center", style="dim")
             parts_table.add_column("Part Name", style="dim", width=30)
             parts_table.add_column("Needed", justify="right")
             parts_table.add_column("Total In Stock", justify="right")
@@ -142,8 +143,12 @@ def main(
                     link_url = f"{config.inventree_instance_url.rstrip('/')}/part/{part_pk}/"
                     display_name = f"[link={link_url}]{part_name}[/link]"
 
+                # Get optional status and format as ✓/✗
+                optional_status = "✓" if getattr(item, 'is_optional', False) else "✗"
+
                 parts_table.add_row(
                     str(part_pk) if part_pk is not None else 'N/A',
+                    optional_status,
                     display_name,
                     f"{total_required:.2f}",
                     f"{total_in_stock:.2f}",
@@ -165,6 +170,7 @@ def main(
             build_table = Table(title="Subassemblies to Build", show_header=True, header_style="bold cyan")
             # Define columns in the new order
             build_table.add_column("Part ID", justify="right")
+            build_table.add_column("Optional", justify="center", style="dim")
             build_table.add_column("Part Name", style="dim", width=30)
             build_table.add_column("Needed", justify="right")
             build_table.add_column("Total In Stock", justify="right")
@@ -192,9 +198,13 @@ def main(
                     link_url = f"{config.inventree_instance_url.rstrip('/')}/part/{part_pk}/"
                     display_name = f"[link={link_url}]{part_name}[/link]"
 
+                # Get optional status and format as ✓/✗
+                optional_status = "✓" if getattr(item, 'is_optional', False) else "✗"
+
                 # Add row data in the new order
                 build_table.add_row(
                     str(part_pk) if part_pk is not None else 'N/A',
+                    optional_status,
                     display_name,
                     f"{total_required:.2f}",
                     f"{total_in_stock:.2f}",
