@@ -286,7 +286,8 @@ def format_parts_to_order_for_display(parts: List['CalculatedPart'], app_config:
 
         data.append({
             "Part ID": part_pk,
-            "Part_URL": part_url, 
+            "Optional": getattr(part, 'is_optional', False),
+            "Part_URL": part_url,
             "Needed": getattr(part, 'total_required', 0.0),
             "Total In Stock": getattr(part, 'total_in_stock', 0.0),
             "Required for Build Orders": getattr(part, 'required_for_build_orders', 0.0),
@@ -298,7 +299,7 @@ def format_parts_to_order_for_display(parts: List['CalculatedPart'], app_config:
         })
 
     columns_order = [
-        "Part ID", "Part_URL", "Needed", "Total In Stock",
+        "Part ID", "Optional", "Part_URL", "Needed", "Total In Stock",
         "Required for Build Orders", "Required for Sales Orders",
         "Available", "To Order", "On Order", "Belongs to"
     ]
@@ -339,7 +340,8 @@ def format_assemblies_to_build_for_display(assemblies: List['CalculatedPart'], a
 
         data.append({
             "Part ID": part_pk,
-            "Part_URL": part_url, 
+            "Optional": getattr(asm, 'is_optional', False),
+            "Part_URL": part_url,
             "Needed": getattr(asm, 'total_required', 0.0),
             "Total In Stock": getattr(asm, 'total_in_stock', 0.0),
             "Required for Build Orders": getattr(asm, 'required_for_build_orders', 0.0),
@@ -351,7 +353,7 @@ def format_assemblies_to_build_for_display(assemblies: List['CalculatedPart'], a
         })
 
     columns_order = [
-        "Part ID", "Part_URL", "Needed", "Total In Stock",
+        "Part ID", "Optional", "Part_URL", "Needed", "Total In Stock",
         "Required for Build Orders", "Required for Sales Orders",
         "Available", "In Production", "To Build", "Belongs to"
     ]
@@ -861,12 +863,17 @@ if st.session_state.calculation_results is not None: # Display tables if results
                 df_parts,
                 column_config={
                     "Part_URL": st.column_config.LinkColumn(
-                        "Part Name", 
+                        "Part Name",
                         help="Click to open part in InvenTree (Name extracted from URL)",
                         display_text="^.+/part/\\d+/#name=(.+)$", # Use regex for display_text
                         validate="^.+/part/\\d+/#name=(.+)$"
                     ),
                      "Part ID": st.column_config.NumberColumn(format="%d"),
+                     "Optional": st.column_config.CheckboxColumn(
+                        "Optional",
+                        help="Indicates if this part is optional for the assembly (from InvenTree BOM)",
+                        default=False
+                     ),
                      "Needed": st.column_config.NumberColumn(format="%.2f"),
                      "Total In Stock": st.column_config.NumberColumn(format="%.2f"),
                      "Required for Build Orders": st.column_config.NumberColumn(format="%.2f"),
@@ -899,6 +906,11 @@ if st.session_state.calculation_results is not None: # Display tables if results
                         validate="^.+/part/\\d+/#name=(.+)$"
                     ),
                     "Part ID": st.column_config.NumberColumn(format="%d"),
+                    "Optional": st.column_config.CheckboxColumn(
+                        "Optional",
+                        help="Indicates if this assembly is optional for the build (from InvenTree BOM)",
+                        default=False
+                    ),
                     "Needed": st.column_config.NumberColumn(format="%.2f"),
                     "Total In Stock": st.column_config.NumberColumn(format="%.2f"),
                     "Required for Build Orders": st.column_config.NumberColumn(format="%.2f"),
