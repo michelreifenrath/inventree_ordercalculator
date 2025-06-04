@@ -291,9 +291,27 @@ def test_cli_no_parts_to_order(MockApiClient, MockAppConfig):
 
 def test_cli_missing_arguments():
     """Test CLI when required arguments are missing."""
-    # Skip this test due to Typer version compatibility issues
-    # The test is not related to our Optional column implementation
-    pytest.skip("Skipping due to Typer version compatibility issues - not related to Optional column feature")
+    from inventree_order_calculator.cli import app
+    runner = CliRunner()
+
+    # Test with no arguments at all - should show missing argument error
+    result = runner.invoke(app, [])
+
+    # Typer should exit with non-zero code when required arguments are missing
+    assert result.exit_code != 0
+
+    # Check that the error message indicates missing argument
+    # In Typer 0.16.0+, error messages go to stderr, and should show usage info
+    error_output = result.stderr or result.stdout
+    assert "Usage:" in error_output
+    assert "PARTS" in error_output
+    assert "Missing argument" in error_output or "Error" in error_output
+
+    # Verify that the help text shows the expected argument format
+    help_result = runner.invoke(app, ["--help"])
+    assert help_result.exit_code == 0
+    assert "PARTS" in help_result.stdout
+    assert "PART_IDENTIFIER:QUANTITY" in help_result.stdout
 
 # Test case for when instance URL is not provided
 @mock.patch('inventree_order_calculator.cli.AppConfig')
