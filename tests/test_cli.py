@@ -563,3 +563,189 @@ def test_cli_optional_column_display():
 
         assert assembly_300_optional == "✗"  # Required assembly should show ✗
         assert assembly_400_optional == "✓"  # Optional assembly should show ✓
+
+
+def test_cli_hide_optional_parts_flag():
+    """Test that --hide-optional-parts flag filters out optional parts and assemblies."""
+    from inventree_order_calculator.cli import app
+    from inventree_order_calculator.models import CalculatedPart, OutputTables
+
+    # Create test data with mixed optional/required parts
+    required_part = CalculatedPart(
+        pk=100, name="Required Part", is_purchaseable=True, is_assembly=False,
+        total_required=10.0, to_order=5.0, is_optional=False
+    )
+
+    optional_part = CalculatedPart(
+        pk=200, name="Optional Part", is_purchaseable=True, is_assembly=False,
+        total_required=5.0, to_order=3.0, is_optional=True
+    )
+
+    required_assembly = CalculatedPart(
+        pk=300, name="Required Assembly", is_purchaseable=False, is_assembly=True,
+        total_required=2.0, to_build=1.0, is_optional=False
+    )
+
+    optional_assembly = CalculatedPart(
+        pk=400, name="Optional Assembly", is_purchaseable=False, is_assembly=True,
+        total_required=1.0, to_build=1.0, is_optional=True
+    )
+
+    # Create mock result with both required and optional items
+    mock_result = OutputTables(
+        parts_to_order=[required_part, optional_part],
+        subassemblies_to_build=[required_assembly, optional_assembly]
+    )
+
+    # Mock the OrderCalculator to return our test data
+    class MockOrderCalculatorOptional:
+        def __init__(self, api_client):
+            pass
+
+        def calculate_orders(self, input_parts):
+            return mock_result
+
+    runner = CliRunner()
+
+    with mock.patch('inventree_order_calculator.cli.AppConfig') as MockAppConfig, \
+         mock.patch('inventree_order_calculator.cli.ApiClient') as MockApiClient, \
+         mock.patch('inventree_order_calculator.cli.OrderCalculator', new=MockOrderCalculatorOptional), \
+         mock.patch('inventree_order_calculator.cli.Console.print', side_effect=mock_console_print_side_effect):
+
+        # Clear captured tables for this test
+        captured_tables_for_test_cli_success.clear()
+
+        # Configure mocks
+        mock_config_instance = MockAppConfig.return_value
+        mock_config_instance.inventree_instance_url = "https://test.inventree.com"
+
+        # Run CLI with --hide-optional-parts flag
+        result = runner.invoke(app, ["100:1", "--hide-optional-parts"])
+
+        # Verify command succeeded
+        assert result.exit_code == 0
+
+        # Get captured tables
+        parts_order_table = None
+        subassemblies_build_table = None
+
+        for tbl in captured_tables_for_test_cli_success:
+            current_table_title_plain = None
+            if tbl.title:
+                if isinstance(tbl.title, Text):
+                    current_table_title_plain = tbl.title.plain
+                elif isinstance(tbl.title, str):
+                    current_table_title_plain = tbl.title
+
+            if current_table_title_plain == "Parts to Order":
+                parts_order_table = tbl
+            elif current_table_title_plain == "Subassemblies to Build":
+                subassemblies_build_table = tbl
+
+        assert parts_order_table is not None, "Parts to Order table not captured"
+        assert subassemblies_build_table is not None, "Subassemblies to Build table not captured"
+
+        # Verify only required parts are shown (optional parts filtered out)
+        assert len(parts_order_table.rows) == 1  # Only required part should remain
+        part_id_col_index = [col.header for col in parts_order_table.columns].index("Part ID")
+        part_id_in_table = list(parts_order_table.columns[part_id_col_index].cells)[0]
+        assert part_id_in_table == "100"  # Only required part ID should be present
+
+        # Verify only required assemblies are shown (optional assemblies filtered out)
+        assert len(subassemblies_build_table.rows) == 1  # Only required assembly should remain
+        assembly_id_col_index = [col.header for col in subassemblies_build_table.columns].index("Part ID")
+        assembly_id_in_table = list(subassemblies_build_table.columns[assembly_id_col_index].cells)[0]
+        assert assembly_id_in_table == "300"  # Only required assembly ID should be present
+
+
+def test_cli_combined_filtering_consumables_haip_optional():
+    """Test combined filtering with --hide-consumables, --hide-haip-parts, and --hide-optional-parts flags."""
+    from inventree_order_calculator.cli import app
+    from inventree_order_calculator.models import CalculatedPart, OutputTables
+
+    # Create test data with various combinations
+    required_part = CalculatedPart(
+        pk=100, name="Required Part", is_purchaseable=True, is_assembly=False,
+        total_required=10.0, to_order=5.0, is_optional=False, is_consumable=False,
+        supplier_names=["Regular Supplier"]
+    )
+
+    optional_part = CalculatedPart(
+        pk=200, name="Optional Part", is_purchaseable=True, is_assembly=False,
+        total_required=5.0, to_order=3.0, is_optional=True, is_consumable=False,
+        supplier_names=["Regular Supplier"]
+    )
+
+    consumable_part = CalculatedPart(
+        pk=300, name="Consumable Part", is_purchaseable=True, is_assembly=False,
+        total_required=2.0, to_order=2.0, is_optional=False, is_consumable=True,
+        supplier_names=["Regular Supplier"]
+    )
+
+    haip_part = CalculatedPart(
+        pk=400, name="HAIP Part", is_purchaseable=True, is_assembly=False,
+        total_required=3.0, to_order=3.0, is_optional=False, is_consumable=False,
+        supplier_names=["HAIP Solutions GmbH"]
+    )
+
+    optional_consumable_part = CalculatedPart(
+        pk=500, name="Optional Consumable Part", is_purchaseable=True, is_assembly=False,
+        total_required=1.0, to_order=1.0, is_optional=True, is_consumable=True,
+        supplier_names=["Regular Supplier"]
+    )
+
+    # Create mock result with all types of parts
+    mock_result = OutputTables(
+        parts_to_order=[required_part, optional_part, consumable_part, haip_part, optional_consumable_part],
+        subassemblies_to_build=[]
+    )
+
+    # Mock the OrderCalculator to return our test data
+    class MockOrderCalculatorCombined:
+        def __init__(self, api_client):
+            pass
+
+        def calculate_orders(self, input_parts):
+            return mock_result
+
+    runner = CliRunner()
+
+    with mock.patch('inventree_order_calculator.cli.AppConfig') as MockAppConfig, \
+         mock.patch('inventree_order_calculator.cli.ApiClient') as MockApiClient, \
+         mock.patch('inventree_order_calculator.cli.OrderCalculator', new=MockOrderCalculatorCombined), \
+         mock.patch('inventree_order_calculator.cli.Console.print', side_effect=mock_console_print_side_effect):
+
+        # Clear captured tables for this test
+        captured_tables_for_test_cli_success.clear()
+
+        # Configure mocks
+        mock_config_instance = MockAppConfig.return_value
+        mock_config_instance.inventree_instance_url = "https://test.inventree.com"
+
+        # Run CLI with all filtering flags
+        result = runner.invoke(app, ["100:1", "--hide-consumables", "--hide-haip-parts", "--hide-optional-parts"])
+
+        # Verify command succeeded
+        assert result.exit_code == 0
+
+        # Get captured tables
+        parts_order_table = None
+
+        for tbl in captured_tables_for_test_cli_success:
+            current_table_title_plain = None
+            if tbl.title:
+                if isinstance(tbl.title, Text):
+                    current_table_title_plain = tbl.title.plain
+                elif isinstance(tbl.title, str):
+                    current_table_title_plain = tbl.title
+
+            if current_table_title_plain == "Parts to Order":
+                parts_order_table = tbl
+
+        assert parts_order_table is not None, "Parts to Order table not captured"
+
+        # Verify only the required, non-consumable, non-HAIP part remains
+        assert len(parts_order_table.rows) == 1  # Only required part should remain
+        part_id_col_index = [col.header for col in parts_order_table.columns].index("Part ID")
+        part_id_in_table = list(parts_order_table.columns[part_id_col_index].cells)[0]
+        assert part_id_in_table == "100"  # Only required, non-consumable, non-HAIP part should be present
