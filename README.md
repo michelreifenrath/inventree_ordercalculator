@@ -1,11 +1,13 @@
 # Inventree Order Calculator
 
-A command-line tool to calculate the required components for building a specified number of top-level assemblies based on Bill of Materials (BOM) data fetched from an InvenTree instance.
+A command-line tool and web interface to calculate the required components for building a specified number of top-level assemblies based on Bill of Materials (BOM) data fetched from an InvenTree instance. Features include automatic detection of optional parts from InvenTree BOM data, comprehensive quantity calculations, and support for both CLI and Streamlit web interfaces.
 
 ## Requirements
 
 - Python 3.8+
 - `uv` (Python package installer and virtual environment manager)
+- InvenTree instance with API access
+- InvenTree version supporting BOM optional fields (for Optional column feature)
 
 ## Installation
 
@@ -70,6 +72,45 @@ The tool will output two Markdown-formatted tables:
 
 These tables provide a clear overview of what needs to be procured or manufactured to fulfill the specified top-level assembly builds.
 
+### Optional Parts Column
+
+Both output tables include an **Optional** column that indicates whether each part or assembly is marked as optional in the InvenTree BOM. This feature leverages InvenTree's native BOM optional field support:
+
+- **✓ (Checkmark)**: Indicates the part is optional for the assembly
+- **✗ (X mark)**: Indicates the part is required for the assembly
+
+**Important:** Optional parts are still included in quantity calculations and ordering recommendations. The Optional column serves as an informational indicator to help you make informed decisions about which parts to actually order or build. You may choose to defer ordering optional components based on your specific requirements, budget constraints, or availability.
+
+**InvenTree Integration:** The optional status is automatically extracted from your InvenTree BOM data. When you mark a BOM item as "optional" in InvenTree, this information is preserved and displayed in the calculator's output tables.
+
+#### Table Column Layout
+
+**Parts to Order Table:**
+- Part ID | Optional | Part Name | Needed | Total In Stock | Required for Build Orders | Required for Sales Orders | Available | To Order | On Order | Belongs to
+
+**Subassemblies to Build Table:**
+- Part ID | Optional | Part Name | Needed | Total In Stock | Required for Build Orders | Required for Sales Orders | Available | In Production | To Build | Belongs to
+
+The Optional column is positioned prominently after the Part ID to provide immediate visibility of the optional status for each item.
+
+**Backward Compatibility:** If your InvenTree instance doesn't support the optional field or if BOM items don't have the optional field set, all parts will be marked as required (✗) by default. The calculator remains fully functional with older InvenTree versions.
+
+#### Example Output
+
+**CLI Output:**
+```
+┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━┓
+┃ Part ID ┃ Optional  ┃ Part Name                      ┃ Needed  ┃ To Order        ┃
+┡━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━┩
+│ 12345   │ ✗         │ Main Processor                 │ 10.00   │ 5.00            │
+│ 12346   │ ✓         │ Optional LED Indicator         │ 10.00   │ 10.00           │
+│ 12347   │ ✗         │ Power Supply                   │ 10.00   │ 3.00            │
+└─────────┴───────────┴────────────────────────────────┴─────────┴─────────────────┘
+```
+
+**Streamlit Output:**
+The web interface displays the same information with enhanced formatting, clickable part links, and checkbox-style indicators for the Optional column.
+
 ### Filtering Consumables
 
 Parts can be marked as "consumable" in InvenTree (e.g., solder, glue, cleaning supplies). By default, these parts are included in the calculation results.
@@ -95,6 +136,25 @@ uv run python -m inventree_order_calculator PART_ID_1:10 --hide-haip-parts
 
 **Streamlit UI:**
 A toggle switch labeled "HAIP Solutions Teile ausblenden" (Hide HAIP Solutions Parts) is available. By default, it is off (parts are shown). Toggling it on will filter these parts from the displayed tables.
+
+## Streamlit Web Interface
+
+In addition to the command-line interface, the tool provides a user-friendly web interface built with Streamlit. To launch the web interface:
+
+```bash
+uv run streamlit run src/inventree_order_calculator/streamlit_app.py
+```
+
+The web interface provides:
+
+- **Interactive Input:** Easy-to-use forms for entering part identifiers and quantities
+- **Real-time Calculation:** Instant results as you modify inputs
+- **Enhanced Tables:** Rich formatting with clickable links to InvenTree parts
+- **Optional Column Display:** Clear checkbox indicators (☑/☐) showing which parts are optional
+- **Filtering Controls:** Toggle switches for consumables and HAIP Solutions parts
+- **Export Options:** Download results as CSV or Excel files
+
+The Optional column in the Streamlit interface uses checkbox-style indicators for better visual clarity compared to the CLI's text symbols.
 ## Running with Docker Compose
 
 To run the Inventree Order Calculator using Docker Compose, follow these steps:
