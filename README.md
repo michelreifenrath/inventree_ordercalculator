@@ -137,6 +137,27 @@ uv run python -m inventree_order_calculator PART_ID_1:10 --hide-haip-parts
 **Streamlit UI:**
 A toggle switch labeled "HAIP Solutions Teile ausblenden" (Hide HAIP Solutions Parts) is available. By default, it is off (parts are shown). Toggling it on will filter these parts from the displayed tables.
 
+### Filtering Optional Parts
+
+The tool allows you to hide optional parts from the output tables, which can be useful when you want to focus only on required components for your build.
+
+**CLI:**
+Use the `--hide-optional-parts` flag to exclude optional parts from the output:
+```bash
+uv run python -m inventree_order_calculator PART_ID_1:10 --hide-optional-parts
+```
+
+**Streamlit UI:**
+A toggle switch labeled "Show Optional Parts" is available in the Display Options section. By default, it is on (optional parts are shown). Toggling it off will filter optional parts from both the "Parts to Order" and "Assemblies to Build" tables.
+
+**Filtering Order:**
+When multiple filters are applied, they are processed in the following order:
+1. Consumables filtering (if `--hide-consumables` is used)
+2. HAIP Solutions GmbH filtering (if `--hide-haip-parts` is used)
+3. Optional parts filtering (if `--hide-optional-parts` is used)
+
+This allows for fine-grained control over which parts appear in your output tables.
+
 ## Streamlit Web Interface
 
 In addition to the command-line interface, the tool provides a user-friendly web interface built with Streamlit. To launch the web interface:
@@ -151,7 +172,7 @@ The web interface provides:
 - **Real-time Calculation:** Instant results as you modify inputs
 - **Enhanced Tables:** Rich formatting with clickable links to InvenTree parts
 - **Optional Column Display:** Clear checkbox indicators (☑/☐) showing which parts are optional
-- **Filtering Controls:** Toggle switches for consumables and HAIP Solutions parts
+- **Filtering Controls:** Toggle switches for consumables, HAIP Solutions parts, and optional parts
 - **Export Options:** Download results as CSV or Excel files
 
 The Optional column in the Streamlit interface uses checkbox-style indicators for better visual clarity compared to the CLI's text symbols.
