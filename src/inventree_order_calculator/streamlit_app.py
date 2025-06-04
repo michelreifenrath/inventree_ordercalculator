@@ -253,7 +253,7 @@ def fetch_category_parts(api_client: ApiClient, category_id: int) -> Tuple[Optio
 
 # --- Helper Functions --- (Continued)
 
-def format_parts_to_order_for_display(parts: List['CalculatedPart'], app_config: Optional[AppConfig], show_consumables: bool) -> pd.DataFrame:
+def format_parts_to_order_for_display(parts: List['CalculatedPart'], app_config: Optional[AppConfig], show_consumables: bool, show_optional_parts: bool = True) -> pd.DataFrame:
     """ Formats the list of parts to order into a DataFrame for Streamlit display. """
     if not parts:
         return pd.DataFrame()
@@ -265,13 +265,19 @@ def format_parts_to_order_for_display(parts: List['CalculatedPart'], app_config:
     if not filtered_parts:
         return pd.DataFrame()
 
-    if not st.session_state.get("show_haip_parts_toggle", True): 
+    if not st.session_state.get("show_haip_parts_toggle", True):
         filtered_parts = [
             p for p in filtered_parts
             if "HAIP Solutions GmbH" not in getattr(p, 'supplier_names', [])
         ]
 
-    if not filtered_parts: 
+    if not filtered_parts:
+        return pd.DataFrame()
+
+    if not show_optional_parts:
+        filtered_parts = [p for p in filtered_parts if not getattr(p, 'is_optional', False)]
+
+    if not filtered_parts:
         return pd.DataFrame()
 
     data = []
@@ -307,7 +313,7 @@ def format_parts_to_order_for_display(parts: List['CalculatedPart'], app_config:
     df = df.reindex(columns=columns_order)
     return df
 
-def format_assemblies_to_build_for_display(assemblies: List['CalculatedPart'], app_config: Optional[AppConfig], show_consumables: bool) -> pd.DataFrame:
+def format_assemblies_to_build_for_display(assemblies: List['CalculatedPart'], app_config: Optional[AppConfig], show_consumables: bool, show_optional_parts: bool = True) -> pd.DataFrame:
     """ Formats the list of assemblies to build into a DataFrame for Streamlit display. """
     if not assemblies:
         return pd.DataFrame()
@@ -319,13 +325,19 @@ def format_assemblies_to_build_for_display(assemblies: List['CalculatedPart'], a
     if not filtered_assemblies:
         return pd.DataFrame()
 
-    if not st.session_state.get("show_haip_parts_toggle", True): 
+    if not st.session_state.get("show_haip_parts_toggle", True):
         filtered_assemblies = [
             a for a in filtered_assemblies
             if "HAIP Solutions GmbH" not in getattr(a, 'supplier_names', [])
         ]
 
-    if not filtered_assemblies: 
+    if not filtered_assemblies:
+        return pd.DataFrame()
+
+    if not show_optional_parts:
+        filtered_assemblies = [a for a in filtered_assemblies if not getattr(a, 'is_optional', False)]
+
+    if not filtered_assemblies:
         return pd.DataFrame()
 
     data = []
@@ -390,8 +402,10 @@ if 'next_row_id' not in st.session_state:
     st.session_state.next_row_id = 1
 if 'show_consumables_toggle_widget' not in st.session_state: 
     st.session_state.show_consumables_toggle_widget = False 
-if 'show_haip_parts_toggle' not in st.session_state: 
-    st.session_state.show_haip_parts_toggle = False 
+if 'show_haip_parts_toggle' not in st.session_state:
+    st.session_state.show_haip_parts_toggle = False
+if 'show_optional_parts_toggle' not in st.session_state:
+    st.session_state.show_optional_parts_toggle = True
 
 # --- Preset Session State Initialization ---
 if 'presets_data' not in st.session_state:
@@ -818,6 +832,12 @@ with st.expander("Display Options", expanded=True):
         key="show_haip_parts_key_main", # Changed key to avoid conflict
         help="Include parts primarily supplied by HAIP Solutions GmbH."
     )
+    st.session_state.show_optional_parts_toggle = st.toggle(
+        "Show Optional Parts",
+        value=st.session_state.show_optional_parts_toggle,
+        key="show_optional_parts_key_main",
+        help="Include parts marked as 'optional' in the BOM results."
+    )
 
 # Display calculation error if it occurred (moved from below results)
 # The individual calculation messages (errors/warnings) are displayed
@@ -853,9 +873,10 @@ if st.session_state.calculation_results is not None: # Display tables if results
 
     with tab1:
         df_parts = format_parts_to_order_for_display(
-            results.parts_to_order, 
+            results.parts_to_order,
             st.session_state.config,
-            st.session_state.show_consumables_toggle_widget 
+            st.session_state.show_consumables_toggle_widget,
+            st.session_state.show_optional_parts_toggle
         )
         if not df_parts.empty:
             st.info(f"Found {len(df_parts)} distinct parts to order.")
@@ -890,9 +911,10 @@ if st.session_state.calculation_results is not None: # Display tables if results
 
     with tab2:
         df_assemblies = format_assemblies_to_build_for_display(
-            results.subassemblies_to_build, 
+            results.subassemblies_to_build,
             st.session_state.config,
-            st.session_state.show_consumables_toggle_widget 
+            st.session_state.show_consumables_toggle_widget,
+            st.session_state.show_optional_parts_toggle
         )
         if not df_assemblies.empty:
             st.info(f"Found {len(df_assemblies)} distinct assemblies to build.")
