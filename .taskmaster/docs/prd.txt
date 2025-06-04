@@ -1,0 +1,154 @@
+# Optional BOM Parts Hiding Implementation PRD
+
+## Project Overview
+Implement the ability to hide optional BOM parts from the display in the InvenTree Order Calculator app, similar to the existing consumable parts hiding functionality. This feature will provide users with better control over what parts are displayed in the results tables.
+
+## Problem Statement
+Currently, users can hide consumable parts and HAIP Solutions GmbH parts from the display, but there is no option to hide optional BOM parts. Optional parts are already extracted from InvenTree and displayed with an "Optional" column, but users cannot filter them out when they want to focus only on required parts for their builds.
+
+## Solution Overview
+Add toggle controls and filtering logic to hide optional BOM parts from both the Streamlit web interface and CLI interface, following the exact same patterns as the existing consumable parts hiding functionality.
+
+## User Stories
+- As a production manager, I want to hide optional parts from the display so that I can focus only on required parts for my build orders
+- As a procurement specialist, I want to toggle optional parts visibility so that I can see different views of what needs to be ordered
+- As a CLI user, I want a command-line flag to hide optional parts so that I can script automated reports without optional components
+- As a project manager, I want to combine filtering options (consumables + optional + supplier) so that I can create customized views for different stakeholders
+
+## Functional Requirements
+
+### FR1: Streamlit Optional Parts Toggle
+- Add "Show Optional Parts" toggle in Display Options expander
+- Default state: Show optional parts (True)
+- Toggle state persists in session
+- Toggle affects both "Parts to Order" and "Assemblies to Build" tables
+
+### FR2: CLI Optional Parts Flag
+- Add `--hide-optional-parts` command line option
+- Default behavior: Show optional parts
+- Flag affects both parts and assemblies output tables
+- Provide console feedback when hiding optional parts
+
+### FR3: Filtering Logic Implementation
+- Filter optional parts using `is_optional` field from CalculatedPart objects
+- Apply filtering after consumable and HAIP filtering
+- Maintain all other data and calculations unchanged
+- Use list comprehension: `[p for p in parts if not getattr(p, 'is_optional', False)]`
+
+### FR4: Combined Filtering Support
+- Optional parts filtering works independently of consumable filtering
+- Optional parts filtering works independently of HAIP parts filtering
+- All three filters can be applied simultaneously
+- Filtering order: consumables → HAIP → optional
+
+### FR5: UI Integration
+- Add toggle to existing Display Options expander in Streamlit
+- Position toggle logically with other display options
+- Provide clear help text explaining optional parts filtering
+- Maintain consistent UI patterns with existing toggles
+
+### FR6: Function Signature Updates
+- Update `format_parts_to_order_for_display()` to accept `show_optional_parts` parameter
+- Update `format_assemblies_to_build_for_display()` to accept `show_optional_parts` parameter
+- Update all function calls to pass the optional parts toggle state
+- Maintain backward compatibility
+## Non-Functional Requirements
+
+### NFR1: Performance
+- Filtering logic must have minimal performance impact
+- Use efficient list comprehensions for filtering
+- No additional API calls or database queries required
+
+### NFR2: Code Quality
+- Follow existing code patterns and conventions
+- Maintain consistency with consumable parts hiding implementation
+- Include comprehensive error handling
+- Add appropriate logging for debugging
+
+### NFR3: Backward Compatibility
+- No breaking changes to existing functionality
+- Default behavior shows optional parts (no change for existing users)
+- Existing API and data structures remain unchanged
+
+### NFR4: User Experience
+- Intuitive toggle controls with clear labeling
+- Consistent behavior across Streamlit and CLI interfaces
+- Helpful tooltips and documentation
+- Logical grouping of display options
+
+## Technical Requirements
+
+### Architecture
+- Leverage existing `is_optional` field in CalculatedPart objects
+- Use existing session state management patterns in Streamlit
+- Follow established CLI option patterns with typer
+- Maintain existing data flow and calculation logic
+
+### Implementation Phases
+1. **Phase 1**: Streamlit session state and toggle implementation
+2. **Phase 2**: Streamlit filtering logic in format functions
+3. **Phase 3**: CLI option and filtering implementation
+4. **Phase 4**: Comprehensive testing suite
+5. **Phase 5**: Documentation updates
+
+### Testing Strategy
+- Unit tests for filtering logic in both format functions
+- Integration tests for Streamlit toggle functionality
+- CLI tests for new command-line option
+- Combined filtering scenario tests
+- Regression tests for existing functionality
+
+### Files to Modify
+- `src/inventree_order_calculator/streamlit_app.py` (session state, toggle, filtering)
+- `src/inventree_order_calculator/cli.py` (command option, filtering)
+- `tests/test_streamlit_app.py` (new test cases)
+- `tests/test_cli.py` (new test cases)
+
+## Success Criteria
+
+### Implementation Success
+- All new and existing tests pass
+- Feature works correctly in both Streamlit and CLI interfaces
+- No performance degradation in filtering operations
+- Code review approval and quality standards met
+
+### User Success
+- Users can effectively hide optional parts when needed
+- Filtering behavior is intuitive and predictable
+- Combined filtering scenarios work as expected
+- Documentation is clear and comprehensive
+
+### Technical Success
+- Implementation follows established patterns
+- No breaking changes to existing functionality
+- Proper error handling and edge case coverage
+- Maintainable and extensible code structure
+
+## Timeline
+- **Week 1**: Phase 1-2 (Streamlit implementation)
+- **Week 1**: Phase 3 (CLI implementation)
+- **Week 2**: Phase 4 (Testing implementation)
+- **Week 2**: Phase 5 (Documentation updates)
+
+## Risks and Mitigation
+
+### Risk: UI Layout Issues
+- **Mitigation**: Test Display Options expander layout with three toggles
+- **Mitigation**: Consider grouping toggles with clear visual separation
+
+### Risk: User Confusion
+- **Mitigation**: Provide comprehensive help text for each toggle
+- **Mitigation**: Use consistent naming conventions (show/hide patterns)
+- **Mitigation**: Document filtering behavior clearly
+
+### Risk: Performance Impact
+- **Mitigation**: Use efficient filtering algorithms
+- **Mitigation**: Profile filtering operations with large datasets
+- **Mitigation**: Monitor memory usage during filtering
+
+### Risk: Regression Issues
+- **Mitigation**: Comprehensive regression testing
+- **Mitigation**: Maintain existing API contracts
+- **Mitigation**: Follow established code patterns exactly
+
+

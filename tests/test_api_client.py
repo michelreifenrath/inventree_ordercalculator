@@ -417,6 +417,159 @@ def test_get_bom_data_part_not_found(MockPart, mock_api_client):
     # Example: assert any("part not found" in w.lower() or "error fetching bom" in w.lower() for w in warnings)
 
 @patch('inventree_order_calculator.api_client.Part')
+def test_get_bom_data_extracts_optional_field_true(MockPart, mock_api_client):
+    """Test that get_bom_data extracts optional=True field from BOM item responses."""
+    client, mock_api_instance, _ = mock_api_client
+    mock_assembly_part = MockPart.return_value
+    mock_bom_item = MagicMock()
+    # Mock BOM item with optional=True
+    mock_bom_item._data = {
+        'pk': 10,
+        'sub_part': 123,
+        'quantity': 2.0,
+        'consumable': False,
+        'optional': True  # This should be extracted
+    }
+    mock_assembly_part.getBomItems.return_value = [mock_bom_item]
+    mock_assembly_part._data = {'pk': 1, 'name': 'Assembly Part', 'assembly': True}
+
+    bom_data, warnings = client.get_bom_data(1)
+
+    assert len(bom_data) == 1
+    assert bom_data[0].sub_part == 123
+    assert bom_data[0].quantity == 2.0
+    assert bom_data[0].is_consumable is False
+    assert bom_data[0].is_optional is True  # Should extract optional=True
+
+@patch('inventree_order_calculator.api_client.Part')
+def test_get_bom_data_extracts_optional_field_false(MockPart, mock_api_client):
+    """Test that get_bom_data extracts optional=False field from BOM item responses."""
+    client, mock_api_instance, _ = mock_api_client
+    mock_assembly_part = MockPart.return_value
+    mock_bom_item = MagicMock()
+    # Mock BOM item with optional=False
+    mock_bom_item._data = {
+        'pk': 11,
+        'sub_part': 456,
+        'quantity': 1.5,
+        'consumable': True,
+        'optional': False  # This should be extracted
+    }
+    mock_assembly_part.getBomItems.return_value = [mock_bom_item]
+    mock_assembly_part._data = {'pk': 2, 'name': 'Assembly Part', 'assembly': True}
+
+    bom_data, warnings = client.get_bom_data(2)
+
+    assert len(bom_data) == 1
+    assert bom_data[0].sub_part == 456
+    assert bom_data[0].quantity == 1.5
+    assert bom_data[0].is_consumable is True
+    assert bom_data[0].is_optional is False  # Should extract optional=False
+
+@patch('inventree_order_calculator.api_client.Part')
+def test_get_bom_data_handles_missing_optional_field(MockPart, mock_api_client):
+    """Test that get_bom_data defaults to False when optional field is missing."""
+    client, mock_api_instance, _ = mock_api_client
+    mock_assembly_part = MockPart.return_value
+    mock_bom_item = MagicMock()
+    # Mock BOM item without optional field (older InvenTree version)
+    mock_bom_item._data = {
+        'pk': 12,
+        'sub_part': 789,
+        'quantity': 3.0,
+        'consumable': False
+        # No 'optional' field - should default to False
+    }
+    mock_assembly_part.getBomItems.return_value = [mock_bom_item]
+    mock_assembly_part._data = {'pk': 3, 'name': 'Assembly Part', 'assembly': True}
+
+    bom_data, warnings = client.get_bom_data(3)
+
+    assert len(bom_data) == 1
+    assert bom_data[0].sub_part == 789
+    assert bom_data[0].quantity == 3.0
+    assert bom_data[0].is_consumable is False
+    assert bom_data[0].is_optional is False  # Should default to False when missing
+
+@patch('inventree_order_calculator.api_client.Part')
+def test_get_bom_data_handles_optional_field_none(MockPart, mock_api_client):
+    """Test that get_bom_data defaults to False when optional field is None."""
+    client, mock_api_instance, _ = mock_api_client
+    mock_assembly_part = MockPart.return_value
+    mock_bom_item = MagicMock()
+    # Mock BOM item with optional=None
+    mock_bom_item._data = {
+        'pk': 13,
+        'sub_part': 101,
+        'quantity': 0.5,
+        'consumable': True,
+        'optional': None  # Should be treated as False
+    }
+    mock_assembly_part.getBomItems.return_value = [mock_bom_item]
+    mock_assembly_part._data = {'pk': 4, 'name': 'Assembly Part', 'assembly': True}
+
+    bom_data, warnings = client.get_bom_data(4)
+
+    assert len(bom_data) == 1
+    assert bom_data[0].sub_part == 101
+    assert bom_data[0].quantity == 0.5
+    assert bom_data[0].is_consumable is True
+    assert bom_data[0].is_optional is False  # Should default to False when None
+
+@patch('inventree_order_calculator.api_client.Part')
+def test_get_bom_data_mixed_optional_required_items(MockPart, mock_api_client):
+    """Test that get_bom_data correctly handles mixed optional and required BOM items."""
+    client, mock_api_instance, _ = mock_api_client
+    mock_assembly_part = MockPart.return_value
+
+    # Create multiple BOM items with different optional values
+    mock_bom_item1 = MagicMock()
+    mock_bom_item1._data = {
+        'pk': 14,
+        'sub_part': 111,
+        'quantity': 1.0,
+        'consumable': False,
+        'optional': False  # Required item
+    }
+
+    mock_bom_item2 = MagicMock()
+    mock_bom_item2._data = {
+        'pk': 15,
+        'sub_part': 222,
+        'quantity': 2.0,
+        'consumable': True,
+        'optional': True  # Optional item
+    }
+
+    mock_bom_item3 = MagicMock()
+    mock_bom_item3._data = {
+        'pk': 16,
+        'sub_part': 333,
+        'quantity': 1.5,
+        'consumable': False
+        # Missing optional field - should default to False
+    }
+
+    mock_assembly_part.getBomItems.return_value = [mock_bom_item1, mock_bom_item2, mock_bom_item3]
+    mock_assembly_part._data = {'pk': 5, 'name': 'Mixed Assembly', 'assembly': True}
+
+    bom_data, warnings = client.get_bom_data(5)
+
+    assert len(bom_data) == 3
+
+    # Check first item (required)
+    assert bom_data[0].sub_part == 111
+    assert bom_data[0].is_optional is False
+
+    # Check second item (optional)
+    assert bom_data[1].sub_part == 222
+    assert bom_data[1].is_optional is True
+
+    # Check third item (missing optional field)
+    assert bom_data[2].sub_part == 333
+    assert bom_data[2].is_optional is False
+
+@patch('inventree_order_calculator.api_client.Part')
 def test_get_parts_by_category_success(MockPart, mock_api_client):
     """Test fetching parts by category successfully."""
     client, mock_api_instance, _ = mock_api_client

@@ -212,6 +212,7 @@ class ApiClient:
                         sub_part_pk = data.get('sub_part')
                         quantity = data.get('quantity')
                         is_consumable = data.get('consumable', False)
+                        is_optional = data.get('optional', False)  # Extract optional field, default to False
 
                         if sub_part_pk is None or quantity is None:
                             warn_msg = f"BOM item for assembly {part_id} is missing 'sub_part' or 'quantity'. Data: {data}"
@@ -223,7 +224,8 @@ class ApiClient:
                             BomItemData(
                                 sub_part=int(sub_part_pk),
                                 quantity=float(quantity),
-                                is_consumable=bool(is_consumable)
+                                is_consumable=bool(is_consumable),
+                                is_optional=bool(is_optional)  # Add optional field to BomItemData
                             )
                         )
                     except (TypeError, ValueError) as conversion_error:

@@ -1,0 +1,77 @@
+{
+  "meta": {
+    "generatedAt": "2025-06-04T15:58:52.024Z",
+    "tasksAnalyzed": 8,
+    "totalTasks": 20,
+    "analysisCount": 8,
+    "thresholdScore": 5,
+    "projectName": "Taskmaster",
+    "usedResearch": true
+  },
+  "complexityAnalysis": [
+    {
+      "taskId": 13,
+      "taskTitle": "Implement 'Show Optional Parts' toggle in Streamlit UI",
+      "complexityScore": 6,
+      "recommendedSubtasks": 2,
+      "expansionPrompt": "Implement the UI toggle and ensure session state persistence.",
+      "reasoning": "This task involves modifying the Streamlit UI to add a toggle and persist its state, which requires understanding of Streamlit's session management but is relatively straightforward."
+    },
+    {
+      "taskId": 14,
+      "taskTitle": "Implement filtering logic for optional parts in Streamlit display functions",
+      "complexityScore": 8,
+      "recommendedSubtasks": 3,
+      "expansionPrompt": "Update display functions to filter optional parts based on the toggle state.",
+      "reasoning": "This task requires updating existing functions with new logic, ensuring efficient filtering, and integrating with other filters, which adds complexity."
+    },
+    {
+      "taskId": 15,
+      "taskTitle": "Add '--hide-optional-parts' command-line option to CLI",
+      "complexityScore": 5,
+      "recommendedSubtasks": 1,
+      "expansionPrompt": "Implement the CLI flag using typer.",
+      "reasoning": "Adding a CLI flag is a straightforward task that involves minimal code changes."
+    },
+    {
+      "taskId": 16,
+      "taskTitle": "Implement filtering logic for optional parts in CLI output",
+      "complexityScore": 7,
+      "recommendedSubtasks": 2,
+      "expansionPrompt": "Update CLI output functions to filter optional parts based on the new flag.",
+      "reasoning": "This task involves applying filtering logic to CLI output, similar to the Streamlit task but with CLI-specific considerations."
+    },
+    {
+      "taskId": 17,
+      "taskTitle": "Develop unit tests for optional parts filtering logic",
+      "complexityScore": 4,
+      "recommendedSubtasks": 1,
+      "expansionPrompt": "Create comprehensive unit tests for filtering logic.",
+      "reasoning": "Writing unit tests is a focused task that requires understanding of the filtering logic but is generally less complex than implementing it."
+    },
+    {
+      "taskId": 18,
+      "taskTitle": "Develop integration and CLI tests for optional parts feature",
+      "complexityScore": 9,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Create integration tests for Streamlit UI and CLI tests for the new flag.",
+      "reasoning": "This task involves creating comprehensive tests across multiple interfaces, which requires a broad understanding of the feature's impact and interaction with other components."
+    },
+    {
+      "taskId": 19,
+      "taskTitle": "Update user documentation for the optional parts hiding feature",
+      "complexityScore": 3,
+      "recommendedSubtasks": 1,
+      "expansionPrompt": "Update user documentation to reflect the new feature.",
+      "reasoning": "Updating documentation is a straightforward task that requires clarity and completeness but is generally less complex than coding tasks."
+    },
+    {
+      "taskId": 20,
+      "taskTitle": "Final code review, comprehensive testing, and quality assurance",
+      "complexityScore": 10,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Conduct thorough code review and end-to-end testing across all interfaces.",
+      "reasoning": "This task involves a comprehensive review and testing of all changes, ensuring adherence to multiple requirements and success criteria, which is highly complex and critical."
+    }
+  ]
+}

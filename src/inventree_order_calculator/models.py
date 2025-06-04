@@ -37,6 +37,7 @@ class CalculatedPart(PartData):
     belongs_to_top_parts: Set[str] = field(default_factory=set) # Tracks which top-level parts this part belongs to
     is_consumable: bool = False
     supplier_names: List[str] = field(default_factory=list)
+    is_optional: bool = False # Indicates if this part is optional in the BOM
 
 @dataclass
 class OutputTables:
@@ -54,3 +55,4 @@ class BomItemData:
     sub_part: int # PK of the sub-part
     quantity: float # Quantity of sub-part per assembly
     is_consumable: bool = False # Indicates if this BOM line item is consumable
+    is_optional: bool = False # Indicates if this BOM line item is optional

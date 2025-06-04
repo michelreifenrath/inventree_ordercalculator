@@ -274,10 +274,172 @@ def test_calculate_required_recursive_subpart_not_consumable_anywhere(calculator
     assert actual_subpart.belongs_to_top_parts == {top_level_part_name}
     assert not output_tables_instance.warnings
 
+def test_calculate_required_recursive_propagates_optional_status_true(mock_api_client):
+    """Test that optional status is propagated from BOM items to CalculatedPart objects when optional=True."""
+    # Arrange
+    calculator = OrderCalculator(mock_api_client)
+    assembly_pk = 100
+    sub_part_pk = 200
+    quantity_needed_assembly = 5.0
+    quantity_per_assembly = 2.0
+    top_level_part_name = "Test Assembly"
+
+    # Mock assembly part data
+    assembly_part_data = PartData(
+        pk=assembly_pk, name="Assembly Part", is_purchaseable=False, is_assembly=True,
+        total_in_stock=0.0, is_consumable=False
+    )
+
+    # Mock sub-part data
+    sub_part_data = PartData(
+        pk=sub_part_pk, name="Sub Part", is_purchaseable=True, is_assembly=False,
+        total_in_stock=0.0, is_consumable=False
+    )
+
+    # Configure mock API client
+    mock_api_client.get_part_data.side_effect = lambda pk: (assembly_part_data, []) if pk == assembly_pk else (sub_part_data, [])
+
+    # BOM item with optional=True
+    mock_bom_item = BomItemData(
+        sub_part=sub_part_pk,
+        quantity=quantity_per_assembly,
+        is_consumable=False,
+        is_optional=True  # This should be propagated
+    )
+    mock_api_client.get_bom_data.return_value = ([mock_bom_item], [])
+
+    # Act
+    output_tables_instance = OutputTables()
+    calculator._calculate_required_recursive(assembly_pk, quantity_needed_assembly, top_level_part_name, output_tables_instance)
+
+    # Assert
+    assert sub_part_pk in calculator.calculated_parts_dict
+    actual_subpart = calculator.calculated_parts_dict[sub_part_pk]
+    assert actual_subpart.is_optional is True  # Should be propagated from BOM item
+    assert actual_subpart.belongs_to_top_parts == {top_level_part_name}
+    assert not output_tables_instance.warnings
+
+def test_calculate_required_recursive_propagates_optional_status_false(mock_api_client):
+    """Test that optional status is propagated from BOM items to CalculatedPart objects when optional=False."""
+    # Arrange
+    calculator = OrderCalculator(mock_api_client)
+    assembly_pk = 101
+    sub_part_pk = 201
+    quantity_needed_assembly = 3.0
+    quantity_per_assembly = 1.0
+    top_level_part_name = "Required Assembly"
+
+    # Mock assembly part data
+    assembly_part_data = PartData(
+        pk=assembly_pk, name="Assembly Part", is_purchaseable=False, is_assembly=True,
+        total_in_stock=0.0, is_consumable=False
+    )
+
+    # Mock sub-part data
+    sub_part_data = PartData(
+        pk=sub_part_pk, name="Required Sub Part", is_purchaseable=True, is_assembly=False,
+        total_in_stock=0.0, is_consumable=False
+    )
+
+    # Configure mock API client
+    mock_api_client.get_part_data.side_effect = lambda pk: (assembly_part_data, []) if pk == assembly_pk else (sub_part_data, [])
+
+    # BOM item with optional=False
+    mock_bom_item = BomItemData(
+        sub_part=sub_part_pk,
+        quantity=quantity_per_assembly,
+        is_consumable=False,
+        is_optional=False  # This should be propagated
+    )
+    mock_api_client.get_bom_data.return_value = ([mock_bom_item], [])
+
+    # Act
+    output_tables_instance = OutputTables()
+    calculator._calculate_required_recursive(assembly_pk, quantity_needed_assembly, top_level_part_name, output_tables_instance)
+
+    # Assert
+    assert sub_part_pk in calculator.calculated_parts_dict
+    actual_subpart = calculator.calculated_parts_dict[sub_part_pk]
+    assert actual_subpart.is_optional is False  # Should be propagated from BOM item
+    assert actual_subpart.belongs_to_top_parts == {top_level_part_name}
+    assert not output_tables_instance.warnings
+
+def test_calculate_required_recursive_mixed_optional_required_parts(mock_api_client):
+    """Test that calculator correctly handles mixed optional and required BOM items."""
+    # Arrange
+    calculator = OrderCalculator(mock_api_client)
+    assembly_pk = 102
+    required_part_pk = 202
+    optional_part_pk = 203
+    quantity_needed_assembly = 2.0
+    top_level_part_name = "Mixed Assembly"
+
+    # Mock assembly part data
+    assembly_part_data = PartData(
+        pk=assembly_pk, name="Mixed Assembly", is_purchaseable=False, is_assembly=True,
+        total_in_stock=0.0, is_consumable=False
+    )
+
+    # Mock sub-part data
+    required_part_data = PartData(
+        pk=required_part_pk, name="Required Part", is_purchaseable=True, is_assembly=False,
+        total_in_stock=0.0, is_consumable=False
+    )
+
+    optional_part_data = PartData(
+        pk=optional_part_pk, name="Optional Part", is_purchaseable=True, is_assembly=False,
+        total_in_stock=0.0, is_consumable=False
+    )
+
+    # Configure mock API client
+    def get_part_data_side_effect(pk):
+        if pk == assembly_pk:
+            return (assembly_part_data, [])
+        elif pk == required_part_pk:
+            return (required_part_data, [])
+        elif pk == optional_part_pk:
+            return (optional_part_data, [])
+        return (None, [])
+
+    mock_api_client.get_part_data.side_effect = get_part_data_side_effect
+
+    # BOM items with mixed optional status
+    required_bom_item = BomItemData(
+        sub_part=required_part_pk,
+        quantity=1.0,
+        is_consumable=False,
+        is_optional=False  # Required
+    )
+
+    optional_bom_item = BomItemData(
+        sub_part=optional_part_pk,
+        quantity=1.0,
+        is_consumable=False,
+        is_optional=True  # Optional
+    )
+
+    mock_api_client.get_bom_data.return_value = ([required_bom_item, optional_bom_item], [])
+
+    # Act
+    output_tables_instance = OutputTables()
+    calculator._calculate_required_recursive(assembly_pk, quantity_needed_assembly, top_level_part_name, output_tables_instance)
+
+    # Assert
+    assert required_part_pk in calculator.calculated_parts_dict
+    assert optional_part_pk in calculator.calculated_parts_dict
+
+    required_part = calculator.calculated_parts_dict[required_part_pk]
+    optional_part = calculator.calculated_parts_dict[optional_part_pk]
+
+    assert required_part.is_optional is False  # Should be required
+    assert optional_part.is_optional is True   # Should be optional
+    assert not output_tables_instance.warnings
+
     # Verify mock calls
-    assert mock_api_client.get_part_data.call_count == 2
+    assert mock_api_client.get_part_data.call_count >= 3  # Assembly + 2 sub-parts
     mock_api_client.get_part_data.assert_any_call(assembly_pk)
-    mock_api_client.get_part_data.assert_any_call(sub_part_pk)
+    mock_api_client.get_part_data.assert_any_call(required_part_pk)
+    mock_api_client.get_part_data.assert_any_call(optional_part_pk)
     mock_api_client.get_bom_data.assert_called_once_with(assembly_pk)
 
 

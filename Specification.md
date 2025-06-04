@@ -56,6 +56,7 @@ This document outlines the specifications for the Inventree Order Calculator, a 
 *   Optional CLI flags:
     *   `--hide-consumables`: If present, consumable parts will be excluded from the output tables.
     *   `--hide-haip-parts`: If present, parts supplied by "HAIP Solutions GmbH" will be excluded.
+    *   `--hide-optional-parts`: If present, parts marked as optional in the BOM will be excluded from the output tables.
 
 ### 4.2. Configuration Input
 
@@ -66,15 +67,15 @@ This document outlines the specifications for the Inventree Order Calculator, a 
 
 ### 5.1. Parts to Order Table (Markdown)
 
-| Part ID | Part Name | Needed | Total In Stock | Required for Build Orders | Required for Sales Orders | Available | To Order | On Order |
-|---|---|---|---|---|---|---|---|---|
-| ... | ... | ... | ... | ... | ... | ... | ... | ... |
+| Part ID | Optional | Part Name | Needed | Total In Stock | Required for Build Orders | Required for Sales Orders | Available | To Order | On Order |
+|---|---|---|---|---|---|---|---|---|---|
+| ... | ... | ... | ... | ... | ... | ... | ... | ... | ... |
 
 ### 5.2. Subassemblies to Build Table (Markdown)
 
-| Part ID | Part Name | Needed | Total In Stock | Required for Build Orders | Required for Sales Orders | Available | In Production | To Build |
-|---|---|---|---|---|---|---|---|---|
-| ... | ... | ... | ... | ... | ... | ... | ... | ... |
+| Part ID | Optional | Part Name | Needed | Total In Stock | Required for Build Orders | Required for Sales Orders | Available | In Production | To Build |
+|---|---|---|---|---|---|---|---|---|---|
+| ... | ... | ... | ... | ... | ... | ... | ... | ... | ... |
 
 ### 5.3. Log Output
 
