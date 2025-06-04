@@ -2,7 +2,7 @@ services:
   inventree-calculator:
     build: .
     ports:
-      - "60962:8501"
+      - "8501:8501"
     volumes:
       - ./.env:/app/.env
     # The working directory is set to /app in the Dockerfile,
