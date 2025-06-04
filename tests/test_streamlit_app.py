@@ -155,12 +155,95 @@ class TestFormatPartsToOrderForDisplay:
         parts = []
         app_config = None
         show_consumables = True
-        
+
         # Act
         df = format_parts_to_order_for_display(parts, app_config, show_consumables)
-        
+
         # Assert
         assert df.empty
+
+    def test_format_parts_to_order_show_optional_parts_true(self):
+        """Test that optional parts are included when show_optional_parts=True."""
+        # Arrange
+        required_part = CalculatedPart(
+            pk=100, name="Required Part", is_purchaseable=True, is_assembly=False,
+            total_required=10.0, to_order=5.0, is_optional=False
+        )
+        optional_part = CalculatedPart(
+            pk=200, name="Optional Part", is_purchaseable=True, is_assembly=False,
+            total_required=5.0, to_order=3.0, is_optional=True
+        )
+
+        parts = [required_part, optional_part]
+        app_config = None
+        show_consumables = True
+        show_optional_parts = True
+
+        # Act
+        df = format_parts_to_order_for_display(parts, app_config, show_consumables, show_optional_parts)
+
+        # Assert
+        assert len(df) == 2  # Both parts should be included
+        part_ids = df["Part ID"].tolist()
+        assert 100 in part_ids
+        assert 200 in part_ids
+
+    def test_format_parts_to_order_show_optional_parts_false(self):
+        """Test that optional parts are excluded when show_optional_parts=False."""
+        # Arrange
+        required_part = CalculatedPart(
+            pk=100, name="Required Part", is_purchaseable=True, is_assembly=False,
+            total_required=10.0, to_order=5.0, is_optional=False
+        )
+        optional_part = CalculatedPart(
+            pk=200, name="Optional Part", is_purchaseable=True, is_assembly=False,
+            total_required=5.0, to_order=3.0, is_optional=True
+        )
+
+        parts = [required_part, optional_part]
+        app_config = None
+        show_consumables = True
+        show_optional_parts = False
+
+        # Act
+        df = format_parts_to_order_for_display(parts, app_config, show_consumables, show_optional_parts)
+
+        # Assert
+        assert len(df) == 1  # Only required part should be included
+        assert df.iloc[0]["Part ID"] == 100
+        assert df.iloc[0]["Optional"] == False
+
+    def test_format_parts_to_order_combined_filtering_consumables_and_optional(self):
+        """Test combined filtering of consumables and optional parts."""
+        # Arrange
+        required_part = CalculatedPart(
+            pk=100, name="Required Part", is_purchaseable=True, is_assembly=False,
+            total_required=10.0, to_order=5.0, is_optional=False, is_consumable=False
+        )
+        optional_part = CalculatedPart(
+            pk=200, name="Optional Part", is_purchaseable=True, is_assembly=False,
+            total_required=5.0, to_order=3.0, is_optional=True, is_consumable=False
+        )
+        consumable_part = CalculatedPart(
+            pk=300, name="Consumable Part", is_purchaseable=True, is_assembly=False,
+            total_required=2.0, to_order=2.0, is_optional=False, is_consumable=True
+        )
+        optional_consumable_part = CalculatedPart(
+            pk=400, name="Optional Consumable Part", is_purchaseable=True, is_assembly=False,
+            total_required=1.0, to_order=1.0, is_optional=True, is_consumable=True
+        )
+
+        parts = [required_part, optional_part, consumable_part, optional_consumable_part]
+        app_config = None
+        show_consumables = False  # Hide consumables
+        show_optional_parts = False  # Hide optional parts
+
+        # Act
+        df = format_parts_to_order_for_display(parts, app_config, show_consumables, show_optional_parts)
+
+        # Assert
+        assert len(df) == 1  # Only required, non-consumable part should be included
+        assert df.iloc[0]["Part ID"] == 100
 
 
 class TestFormatAssembliesToBuildForDisplay:
@@ -303,9 +386,92 @@ class TestFormatAssembliesToBuildForDisplay:
         assemblies = []
         app_config = None
         show_consumables = True
-        
+
         # Act
         df = format_assemblies_to_build_for_display(assemblies, app_config, show_consumables)
-        
+
         # Assert
         assert df.empty
+
+    def test_format_assemblies_to_build_show_optional_parts_true(self):
+        """Test that optional assemblies are included when show_optional_parts=True."""
+        # Arrange
+        required_assembly = CalculatedPart(
+            pk=500, name="Required Assembly", is_purchaseable=False, is_assembly=True,
+            total_required=2.0, to_build=1.0, is_optional=False
+        )
+        optional_assembly = CalculatedPart(
+            pk=600, name="Optional Assembly", is_purchaseable=False, is_assembly=True,
+            total_required=1.0, to_build=1.0, is_optional=True
+        )
+
+        assemblies = [required_assembly, optional_assembly]
+        app_config = None
+        show_consumables = True
+        show_optional_parts = True
+
+        # Act
+        df = format_assemblies_to_build_for_display(assemblies, app_config, show_consumables, show_optional_parts)
+
+        # Assert
+        assert len(df) == 2  # Both assemblies should be included
+        part_ids = df["Part ID"].tolist()
+        assert 500 in part_ids
+        assert 600 in part_ids
+
+    def test_format_assemblies_to_build_show_optional_parts_false(self):
+        """Test that optional assemblies are excluded when show_optional_parts=False."""
+        # Arrange
+        required_assembly = CalculatedPart(
+            pk=500, name="Required Assembly", is_purchaseable=False, is_assembly=True,
+            total_required=2.0, to_build=1.0, is_optional=False
+        )
+        optional_assembly = CalculatedPart(
+            pk=600, name="Optional Assembly", is_purchaseable=False, is_assembly=True,
+            total_required=1.0, to_build=1.0, is_optional=True
+        )
+
+        assemblies = [required_assembly, optional_assembly]
+        app_config = None
+        show_consumables = True
+        show_optional_parts = False
+
+        # Act
+        df = format_assemblies_to_build_for_display(assemblies, app_config, show_consumables, show_optional_parts)
+
+        # Assert
+        assert len(df) == 1  # Only required assembly should be included
+        assert df.iloc[0]["Part ID"] == 500
+        assert df.iloc[0]["Optional"] == False
+
+    def test_format_assemblies_to_build_combined_filtering_consumables_and_optional(self):
+        """Test combined filtering of consumables and optional assemblies."""
+        # Arrange
+        required_assembly = CalculatedPart(
+            pk=500, name="Required Assembly", is_purchaseable=False, is_assembly=True,
+            total_required=2.0, to_build=1.0, is_optional=False, is_consumable=False
+        )
+        optional_assembly = CalculatedPart(
+            pk=600, name="Optional Assembly", is_purchaseable=False, is_assembly=True,
+            total_required=1.0, to_build=1.0, is_optional=True, is_consumable=False
+        )
+        consumable_assembly = CalculatedPart(
+            pk=700, name="Consumable Assembly", is_purchaseable=False, is_assembly=True,
+            total_required=1.0, to_build=1.0, is_optional=False, is_consumable=True
+        )
+        optional_consumable_assembly = CalculatedPart(
+            pk=800, name="Optional Consumable Assembly", is_purchaseable=False, is_assembly=True,
+            total_required=1.0, to_build=1.0, is_optional=True, is_consumable=True
+        )
+
+        assemblies = [required_assembly, optional_assembly, consumable_assembly, optional_consumable_assembly]
+        app_config = None
+        show_consumables = False  # Hide consumables
+        show_optional_parts = False  # Hide optional parts
+
+        # Act
+        df = format_assemblies_to_build_for_display(assemblies, app_config, show_consumables, show_optional_parts)
+
+        # Assert
+        assert len(df) == 1  # Only required, non-consumable assembly should be included
+        assert df.iloc[0]["Part ID"] == 500
