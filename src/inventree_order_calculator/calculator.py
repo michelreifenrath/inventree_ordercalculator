@@ -161,6 +161,7 @@ class OrderCalculator:
                     sub_part_pk = item.sub_part
                     quantity_per_assembly = item.quantity
                     bom_item_is_consumable = item.is_consumable # Get from BomItemData
+                    bom_item_is_optional = item.is_optional # Get from BomItemData
 
                     if not isinstance(sub_part_pk, int) or not isinstance(quantity_per_assembly, (int, float)):
                         logger.warning(f"BOM item for assembly {part_pk} has invalid sub-part PK ({sub_part_pk}) or quantity ({quantity_per_assembly}). Skipping item.")
@@ -192,6 +193,17 @@ class OrderCalculator:
                         else:
                             # This case should ideally not happen if _calculate_required_recursive works correctly
                             logger.error(f"Sub-part PK {sub_part_pk} not found in calculated_parts_dict after recursive call. Cannot update consumable status from BOM item.")
+
+                    # Update the is_optional flag if this BOM item marks it as optional.
+                    if bom_item_is_optional:
+                        if sub_part_pk in self.calculated_parts_dict:
+                            # If any BOM line marks it as optional, the CalculatedPart becomes optional.
+                            if not self.calculated_parts_dict[sub_part_pk].is_optional:
+                                logger.debug(f"Marking sub-part {sub_part_pk} as optional due to BOM item in assembly {part_pk}.")
+                                self.calculated_parts_dict[sub_part_pk].is_optional = True
+                        else:
+                            # This case should ideally not happen if _calculate_required_recursive works correctly
+                            logger.error(f"Sub-part PK {sub_part_pk} not found in calculated_parts_dict after recursive call. Cannot update optional status from BOM item.")
             except Exception as e:
                 logger.exception(f"Unexpected error processing BOM for {calculated_part.name} (PK: {part_pk}): {e}")
 
