@@ -67,6 +67,7 @@ def main(
     parts: Annotated[List[str], typer.Argument(help="List of parts to order in format PART_IDENTIFIER:QUANTITY")],
     hide_consumables: Annotated[bool, typer.Option("--hide-consumables", help="Hide consumable parts from the output tables.")] = False,
     hide_haip_parts: Annotated[bool, typer.Option("--hide-haip-parts", help="Hide parts supplied by HAIP Solutions GmbH.")] = False,
+    hide_optional_parts: Annotated[bool, typer.Option("--hide-optional-parts", help="Hide parts marked as optional in the BOM from the output tables.")] = False,
 ):
     """
     Calculates the required components and total cost for a list of top-level parts based on Inventree BOMs.
@@ -103,6 +104,11 @@ def main(
             # For assemblies, the supplier is of the assembly itself, not its components.
             # If an assembly part itself is supplied by HAIP, it should be hidden.
             result.subassemblies_to_build = [a for a in result.subassemblies_to_build if "HAIP Solutions GmbH" not in a.supplier_names]
+
+        if hide_optional_parts:
+            console.print("[italic]Hiding optional parts from output.[/italic]")
+            result.parts_to_order = [p for p in result.parts_to_order if not getattr(p, 'is_optional', False)]
+            result.subassemblies_to_build = [a for a in result.subassemblies_to_build if not getattr(a, 'is_optional', False)]
 
         # --- Output Formatting ---
         # Access the lists directly from the OutputTables object
