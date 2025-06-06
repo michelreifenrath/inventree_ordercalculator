@@ -338,21 +338,26 @@ class ApiClient:
                 build_orders_data = self.api.get('build/', params={'part': part_id})
                 build_orders = build_orders_data if isinstance(build_orders_data, list) else build_orders_data.get('results', [])
 
+                logger.debug(f"Found {len(build_orders)} build orders for part {part_id}")
+
                 for build_order in build_orders:
                     if isinstance(build_order, dict):
                         status = build_order.get('status', 0)
                         status_text = build_order.get('status_text', '').lower()
+                        quantity = build_order.get('quantity', 0)
+                        completed = build_order.get('completed', 0)
+                        remaining = quantity - completed
 
-                        # Only include Pending orders (status 10) - these have no stock items yet
-                        # Production orders (status 20) should already have stock items with is_building=True
-                        if status == 10 or status_text == 'pending':
-                            quantity = build_order.get('quantity', 0)
-                            completed = build_order.get('completed', 0)
-                            remaining = quantity - completed
+                        logger.debug(f"Build order: status={status}, status_text='{status_text}', quantity={quantity}, completed={completed}, remaining={remaining}")
 
+                        # Include both Pending (10) and Production (20) orders with remaining quantities
+                        # This matches the old GUI behavior which counts all active build orders
+                        if status in [10, 20] or status_text in ['pending', 'production']:
                             if remaining > 0:
                                 total_building += float(remaining)
-                                logger.debug(f"Added {remaining} from pending build order for part {part_id}")
+                                logger.debug(f"Added {remaining} from {status_text} build order for part {part_id}")
+                        else:
+                            logger.debug(f"Skipping build order with status {status} ({status_text}) for part {part_id}")
 
             except Exception as e:
                 warn_msg = f"Failed to check build orders for part {part_id}: {e}"
