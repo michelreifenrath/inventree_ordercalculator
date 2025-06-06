@@ -7,9 +7,10 @@ the new is_optional field implementation for BOM optional column feature.
 
 import pytest
 from src.inventree_order_calculator.models import (
-    BomItemData, 
-    CalculatedPart, 
-    PartData
+    BomItemData,
+    CalculatedPart,
+    PartData,
+    BuildingCalculationMethod
 )
 
 
@@ -236,3 +237,43 @@ class TestOptionalFieldIntegration:
         assert optional_bom.is_optional is True
         assert required_part.is_optional is False
         assert optional_part.is_optional is True
+
+
+class TestBuildingCalculationMethod:
+    """Test cases for BuildingCalculationMethod enum."""
+
+    def test_building_calculation_method_values(self):
+        """Test that BuildingCalculationMethod has correct enum values."""
+        assert BuildingCalculationMethod.NEW_GUI.value == "new_gui"
+        assert BuildingCalculationMethod.OLD_GUI.value == "old_gui"
+
+    def test_building_calculation_method_enum_members(self):
+        """Test that BuildingCalculationMethod has expected members."""
+        members = list(BuildingCalculationMethod)
+        assert len(members) == 2
+        assert BuildingCalculationMethod.NEW_GUI in members
+        assert BuildingCalculationMethod.OLD_GUI in members
+
+    def test_building_calculation_method_string_representation(self):
+        """Test string representation of BuildingCalculationMethod enum."""
+        assert str(BuildingCalculationMethod.NEW_GUI) == "BuildingCalculationMethod.NEW_GUI"
+        assert str(BuildingCalculationMethod.OLD_GUI) == "BuildingCalculationMethod.OLD_GUI"
+
+    def test_building_calculation_method_comparison(self):
+        """Test comparison operations with BuildingCalculationMethod enum."""
+        assert BuildingCalculationMethod.NEW_GUI == BuildingCalculationMethod.NEW_GUI
+        assert BuildingCalculationMethod.OLD_GUI == BuildingCalculationMethod.OLD_GUI
+        assert BuildingCalculationMethod.NEW_GUI != BuildingCalculationMethod.OLD_GUI
+
+    def test_building_calculation_method_from_value(self):
+        """Test creating BuildingCalculationMethod from string values."""
+        new_gui_method = BuildingCalculationMethod("new_gui")
+        old_gui_method = BuildingCalculationMethod("old_gui")
+
+        assert new_gui_method == BuildingCalculationMethod.NEW_GUI
+        assert old_gui_method == BuildingCalculationMethod.OLD_GUI
+
+    def test_building_calculation_method_invalid_value(self):
+        """Test that invalid values raise ValueError."""
+        with pytest.raises(ValueError):
+            BuildingCalculationMethod("invalid_method")

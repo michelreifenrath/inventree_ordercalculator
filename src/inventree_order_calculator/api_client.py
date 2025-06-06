@@ -4,6 +4,7 @@ from typing import Optional, List, Dict, Any, Tuple
 from inventree.api import InvenTreeAPI
 from inventree.part import Part, PartCategory # Corrected import for PartCategory
 from inventree.company import SupplierPart, Company # Added import
+from inventree.stock import StockItem # Added import for stock items
 from requests.exceptions import HTTPError, RequestException
 
 from .models import PartData, BomItemData # Import PartData and BomItemData
@@ -275,6 +276,128 @@ class ApiClient:
             logger.error(err_msg, exc_info=True)
             warnings_list.append(err_msg)
             return None, warnings_list
+
+    def get_legacy_building_quantity(self, part_id: int) -> Tuple[float, List[str]]:
+        """
+        Fetches the legacy building quantity for a part using the old GUI approach.
+
+        This method queries stock items with is_building=True and sums their quantities,
+        which matches the old InvenTree GUI behavior where building quantity decreases
+        immediately when individual build outputs are completed.
+
+        Equivalent to: StockItem.objects.filter(part=part, is_building=True).aggregate(Sum("quantity"))
+
+        Args:
+            part_id: The primary key (ID) of the part.
+
+        Returns:
+            A tuple containing (building quantity as float, list of warning/error messages).
+        """
+        warnings_list: List[str] = []
+        if not self.api:
+            msg = "API client not initialized. Cannot fetch legacy building quantity."
+            logger.error(msg)
+            warnings_list.append(msg)
+            return 0.0, warnings_list
+
+        try:
+            # Query stock items for this part where is_building=True
+            # This mimics: StockItem.objects.filter(part=part, is_building=True).aggregate(Sum("quantity"))
+            stock_items = StockItem.list(self.api, part=part_id, is_building=True)
+
+            total_building = 0.0
+            if stock_items is not None:
+                for stock_item in stock_items:
+                    quantity = None
+
+                    # Try to get quantity from direct attribute first (preferred)
+                    if hasattr(stock_item, 'quantity'):
+                        quantity = stock_item.quantity
+                    # Fallback to _data dictionary
+                    elif hasattr(stock_item, '_data') and stock_item._data:
+                        quantity = stock_item._data.get('quantity', 0.0)
+
+                    if quantity is not None:
+                        try:
+                            total_building += float(quantity)
+                        except (ValueError, TypeError):
+                            warn_msg = f"Stock item for part {part_id} has invalid quantity '{quantity}'. Skipping."
+                            logger.warning(warn_msg)
+                            warnings_list.append(warn_msg)
+                    else:
+                        warn_msg = f"Stock item for part {part_id} has no accessible quantity. Skipping."
+                        logger.warning(warn_msg)
+                        warnings_list.append(warn_msg)
+            else:
+                # No stock items found with is_building=True, which is normal
+                logger.debug(f"No stock items with is_building=True found for part {part_id}")
+
+            # Additional check: For build orders in Pending status (no outputs created yet)
+            # The old GUI also counts these as "building" quantities
+            try:
+                build_orders_data = self.api.get('build/', params={'part': part_id})
+                build_orders = build_orders_data if isinstance(build_orders_data, list) else build_orders_data.get('results', [])
+
+                logger.debug(f"Found {len(build_orders)} build orders for part {part_id}")
+
+                for build_order in build_orders:
+                    if isinstance(build_order, dict):
+                        status = build_order.get('status', 0)
+                        status_text = build_order.get('status_text', '').lower()
+                        quantity = build_order.get('quantity', 0)
+                        completed = build_order.get('completed', 0)
+                        remaining = quantity - completed
+
+                        logger.debug(f"Build order: status={status}, status_text='{status_text}', quantity={quantity}, completed={completed}, remaining={remaining}")
+
+                        # Include both Pending (10) and Production (20) orders with remaining quantities
+                        # This matches the old GUI behavior which counts all active build orders
+                        if status in [10, 20] or status_text in ['pending', 'production']:
+                            if remaining > 0:
+                                total_building += float(remaining)
+                                logger.debug(f"Added {remaining} from {status_text} build order for part {part_id}")
+                        else:
+                            logger.debug(f"Skipping build order with status {status} ({status_text}) for part {part_id}")
+
+            except Exception as e:
+                warn_msg = f"Failed to check build orders for part {part_id}: {e}"
+                logger.warning(warn_msg)
+                warnings_list.append(warn_msg)
+
+            logger.debug(f"Legacy building quantity for part {part_id}: {total_building}")
+            return total_building, warnings_list
+
+        except HTTPError as e:
+            status_code = e.response.status_code if hasattr(e, 'response') else 'N/A'
+            err_detail = str(e)
+            try:
+                response_json = e.response.json()
+                if 'detail' in response_json:
+                    err_detail = response_json['detail']
+            except (ValueError, AttributeError):
+                pass
+
+            if status_code == 404:
+                log_msg = f"Part not found for legacy building query (ID: {part_id}). Status: 404. Detail: {err_detail}"
+                logger.warning(log_msg)
+                warnings_list.append(log_msg)
+            else:
+                log_msg = f"API HTTPError fetching legacy building quantity for part {part_id}: Status {status_code}. Detail: {err_detail}"
+                logger.error(log_msg)
+                warnings_list.append(log_msg)
+            return 0.0, warnings_list
+
+        except RequestException as e:
+            err_msg = f"API RequestException fetching legacy building quantity for part {part_id}: {str(e)}"
+            logger.error(err_msg)
+            warnings_list.append(err_msg)
+            return 0.0, warnings_list
+
+        except Exception as e:
+            err_msg = f"Unexpected error fetching legacy building quantity for part {part_id}: {str(e)}"
+            logger.error(err_msg, exc_info=True)
+            warnings_list.append(err_msg)
+            return 0.0, warnings_list
 
     def get_parts_by_category(self, category_id: int) -> Tuple[Optional[List[Dict]], List[str]]:
         """

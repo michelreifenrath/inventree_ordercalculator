@@ -4,7 +4,7 @@
 import logging
 from typing import Union, Optional, List
 # Import necessary models
-from .models import PartData, BomItemData, InputPart, CalculatedPart, OutputTables # Import more models
+from .models import PartData, BomItemData, InputPart, CalculatedPart, OutputTables, BuildingCalculationMethod # Import more models
 # from .api_client import InventreeApiClient, ApiClientError, PartNotFoundError # Not needed yet (mocked)
 
 # Setup logger
@@ -18,14 +18,16 @@ class OrderCalculator:
     # ATTRIBUTE calculated_parts_dict: DICTIONARY[INTEGER, CalculatedPart] # Stores calculated results keyed by part PK
     # Note: Replaces required_parts and processed_parts_cache logic
 
-    def __init__(self, api_client):
+    def __init__(self, api_client, building_method: BuildingCalculationMethod = BuildingCalculationMethod.OLD_GUI):
         """
         Initializes the OrderCalculator.
 
         Args:
             api_client: An instance of InventreeApiClient (or a mock).
+            building_method: Method to use for building quantity calculations (defaults to OLD_GUI).
         """
         self.api_client = api_client
+        self.building_method = building_method
         # self.required_parts = {} # Replaced by calculated_parts_dict logic
         # self.processed_parts_cache = {} # Renamed and stores CalculatedPart
         self.calculated_parts_dict = {} # Initialize dictionary to store CalculatedPart instances
@@ -65,6 +67,51 @@ class OrderCalculator:
 
         return available
 
+    def _get_part_data_with_building_method(self, part_pk: int) -> tuple[Optional[PartData], List[str]]:
+        """
+        Fetches part data and applies the appropriate building calculation method.
+
+        For OLD_GUI method: Uses legacy building calculation for assemblies.
+        For NEW_GUI method: Uses standard building calculation.
+
+        Args:
+            part_pk: The primary key of the part to fetch.
+
+        Returns:
+            A tuple containing (PartData object or None, list of warning/error messages).
+        """
+        # Get standard part data
+        part_data, warnings = self.api_client.get_part_data(part_pk)
+
+        if part_data is None:
+            return None, warnings
+
+        # Apply building calculation method for assemblies
+        if part_data.is_assembly and self.building_method == BuildingCalculationMethod.OLD_GUI:
+            # Use legacy building calculation
+            legacy_building, legacy_warnings = self.api_client.get_legacy_building_quantity(part_pk)
+            warnings.extend(legacy_warnings)
+
+            # Create new PartData with updated building quantity
+            part_data = PartData(
+                pk=part_data.pk,
+                name=part_data.name,
+                is_purchaseable=part_data.is_purchaseable,
+                is_assembly=part_data.is_assembly,
+                total_in_stock=part_data.total_in_stock,
+                required_for_build_orders=part_data.required_for_build_orders,
+                required_for_sales_orders=part_data.required_for_sales_orders,
+                ordering=part_data.ordering,
+                building=legacy_building,  # Use legacy building quantity
+                is_consumable=part_data.is_consumable,
+                supplier_names=part_data.supplier_names
+            )
+
+            logger.debug(f"Applied OLD_GUI building method for assembly {part_pk}: building={legacy_building}")
+
+        # For NEW_GUI method or non-assemblies, use standard part data as-is
+        return part_data, warnings
+
     # Internal recursive function to calculate total required quantities
     def _calculate_required_recursive(self, part_pk: int, quantity_needed_for_parent: float, current_top_level_part_name: str, output_tables_ref: OutputTables):
         """
@@ -82,7 +129,7 @@ class OrderCalculator:
         calculated_part = self.calculated_parts_dict.get(part_pk)
         if not calculated_part:
             # Fetch base PartData if not already processed
-            part_data, api_warnings = self.api_client.get_part_data(part_pk)
+            part_data, api_warnings = self._get_part_data_with_building_method(part_pk)
             if api_warnings:
                 output_tables_ref.warnings.extend(api_warnings)
             
@@ -229,7 +276,7 @@ class OrderCalculator:
                 # If not, fetch its base PartData to create it.
                 top_level_name = None
                 if part_pk not in self.calculated_parts_dict:
-                    top_level_part_data, api_warnings = self.api_client.get_part_data(part_pk)
+                    top_level_part_data, api_warnings = self._get_part_data_with_building_method(part_pk)
                     if api_warnings:
                         output_tables.warnings.extend(api_warnings)
 

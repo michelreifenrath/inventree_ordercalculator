@@ -3,6 +3,12 @@
 
 from dataclasses import dataclass, field
 from typing import Union, Set, List # Import Union, Set, and List
+from enum import Enum
+
+class BuildingCalculationMethod(Enum):
+    """Enum for different building quantity calculation methods."""
+    NEW_GUI = "new_gui"  # Current behavior (full build order quantities)
+    OLD_GUI = "old_gui"  # Legacy behavior (only is_building=True items)
 
 @dataclass
 class PartData:

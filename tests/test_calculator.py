@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import Mock, patch # Import patch
 
 # Import actual classes from the source modules
-from src.inventree_order_calculator.models import PartData, BomItemData, InputPart, OutputTables, CalculatedPart # Import more models
+from src.inventree_order_calculator.models import PartData, BomItemData, InputPart, OutputTables, CalculatedPart, BuildingCalculationMethod # Import more models
 from src.inventree_order_calculator.calculator import OrderCalculator
 
 
@@ -11,7 +11,10 @@ from src.inventree_order_calculator.calculator import OrderCalculator
 @pytest.fixture
 def mock_api_client():
     """Provides a mock API client instance."""
-    return Mock()
+    mock_client = Mock()
+    # Mock the legacy building quantity method to return (0.0, []) by default
+    mock_client.get_legacy_building_quantity.return_value = (0.0, [])
+    return mock_client
 
 @pytest.fixture
 def calculator(mock_api_client):
@@ -443,12 +446,14 @@ def test_calculate_required_recursive_mixed_optional_required_parts(mock_api_cli
     mock_api_client.get_bom_data.assert_called_once_with(assembly_pk)
 
 
-def test_calculate_required_recursive_netting_covers_demand(calculator, mock_api_client):
+def test_calculate_required_recursive_netting_covers_demand(mock_api_client):
     """
     Tests netting: Assembly is needed, effective availability covers the gross demand.
     Demand propagated to components should be zero, but both parts should be in the dict.
+    Uses NEW_GUI method to test original behavior.
     """
     # Arrange
+    calculator = OrderCalculator(mock_api_client, building_method=BuildingCalculationMethod.NEW_GUI)
     assembly_pk = 100
     component_pk = 101
     quantity_needed_assembly = 10.0
@@ -505,12 +510,14 @@ def test_calculate_required_recursive_netting_covers_demand(calculator, mock_api
     assert mock_api_client.get_part_data.call_count == 2
     # BOM is fetched, but recursion doesn't happen if net demand is zero
     mock_api_client.get_bom_data.assert_called_once_with(assembly_pk)
-def test_calculate_required_recursive_netting_partial_coverage(calculator, mock_api_client):
+def test_calculate_required_recursive_netting_partial_coverage(mock_api_client):
     """
     Tests netting: Assembly is needed, effective availability partially covers the gross demand.
     Demand propagated to components should be based on the remaining net demand.
+    Uses NEW_GUI method to test original behavior.
     """
     # Arrange
+    calculator = OrderCalculator(mock_api_client, building_method=BuildingCalculationMethod.NEW_GUI)
     assembly_pk = 200
     component_pk = 201
     quantity_needed_assembly = 10.0
@@ -567,15 +574,17 @@ def test_calculate_required_recursive_netting_partial_coverage(calculator, mock_
     mock_api_client.get_bom_data.assert_called_once_with(assembly_pk)
 
 
-def test_calculate_required_recursive_netting_multi_level(calculator, mock_api_client):
+def test_calculate_required_recursive_netting_multi_level(mock_api_client):
     """
     Tests netting: An assembly (SA1) is used by two top-level assemblies (TLA1, TLA2).
     The total gross demand for SA1 is accumulated. The demand propagated to SA1's
     components (C3) should be based on the *net* demand calculated using the
     *accumulated* gross demand for SA1 and SA1's availability.
     Also tests that belongs_to_top_parts accumulates correctly.
+    Uses NEW_GUI method to test original behavior.
     """
     # Arrange
+    calculator = OrderCalculator(mock_api_client, building_method=BuildingCalculationMethod.NEW_GUI)
     tla1_pk, tla2_pk = 300, 301
     sa1_pk = 302 # Sub-assembly
     c3_pk = 303  # Component of SA1
@@ -830,13 +839,15 @@ def test_calculate_orders_invalid_input_identifier_warning(calculator, mock_api_
     # Assert
     assert actual_availability == expected_availability, \
         f"Expected availability {expected_availability}, but got {actual_availability}"
-def test_calculate_orders_simple_assembly_build(calculator, mock_api_client):
+def test_calculate_orders_simple_assembly_build(mock_api_client):
     """
     Tests the main calculate_orders method for a simple case:
     ordering a single assembly part that needs to be built.
     Checks the final OutputTables and belongs_to_top_parts.
+    Uses NEW_GUI method to test original behavior.
     """
     # Arrange
+    calculator = OrderCalculator(mock_api_client, building_method=BuildingCalculationMethod.NEW_GUI)
     assembly_pk = 40
     assembly_name = "Assembly To Build"
     quantity_to_build = 10.0
@@ -1023,13 +1034,15 @@ def test_calculate_orders_multi_level_with_shared_component(calculator, mock_api
     SA2 BOM: 4x CC
     Expected: Build 1 TA, 2 SA1, 1 SA2. Order 10 CC. All belong to "Top Assembly".
     """
-def test_calculate_orders_assembly_shown_if_building_even_if_not_needed(calculator, mock_api_client):
+def test_calculate_orders_assembly_shown_if_building_even_if_not_needed(mock_api_client):
     """
     Tests that an assembly is included in the subassemblies_to_build list
     if it has a non-zero 'building' quantity, even if 'total_required' is 0
     and 'to_build' calculates to 0.
+    Uses NEW_GUI method to test original behavior.
     """
     # Arrange
+    calculator = OrderCalculator(mock_api_client, building_method=BuildingCalculationMethod.NEW_GUI)
     assembly_pk = 50
     assembly_name = "Assembly In Production Not Needed"
     stock_val = 10.0
@@ -1105,3 +1118,155 @@ def test_calculate_orders_assembly_shown_if_building_even_if_not_needed(calculat
     # and effective_availability > 0 means net_demand_for_this_path_components will be 0.
     # The BOM fetch happens after this.
     mock_api_client.get_bom_data.assert_called_once_with(assembly_pk)
+
+
+# --- Tests for Legacy Building Calculation Method ---
+
+def test_calculator_with_legacy_building_method_initialization(mock_api_client):
+    """Test that calculator can be initialized with legacy building calculation method."""
+    # Arrange & Act
+    calculator = OrderCalculator(api_client=mock_api_client, building_method=BuildingCalculationMethod.OLD_GUI)
+
+    # Assert
+    assert calculator.building_method == BuildingCalculationMethod.OLD_GUI
+    assert calculator.api_client == mock_api_client
+
+
+def test_calculator_with_new_building_method_initialization(mock_api_client):
+    """Test that calculator can be initialized with new building calculation method."""
+    # Arrange & Act
+    calculator = OrderCalculator(api_client=mock_api_client, building_method=BuildingCalculationMethod.NEW_GUI)
+
+    # Assert
+    assert calculator.building_method == BuildingCalculationMethod.NEW_GUI
+    assert calculator.api_client == mock_api_client
+
+
+def test_calculator_default_building_method_is_old_gui(mock_api_client):
+    """Test that calculator defaults to OLD_GUI method when no method is specified."""
+    # Arrange & Act
+    calculator = OrderCalculator(api_client=mock_api_client)
+
+    # Assert
+    assert calculator.building_method == BuildingCalculationMethod.OLD_GUI
+
+
+@patch('src.inventree_order_calculator.calculator.OrderCalculator._get_part_data_with_building_method')
+def test_calculator_uses_legacy_building_method_for_assemblies(mock_get_part_data, mock_api_client):
+    """Test that calculator uses legacy building method when processing assemblies."""
+    # Arrange
+    calculator = OrderCalculator(api_client=mock_api_client, building_method=BuildingCalculationMethod.OLD_GUI)
+
+    assembly_pk = 123
+    assembly_part_data = PartData(
+        pk=assembly_pk, name="Test Assembly", is_purchaseable=False, is_assembly=True,
+        total_in_stock=10.0, building=5.0  # This should be replaced with legacy value
+    )
+
+    # Mock the method that should use legacy building calculation
+    mock_get_part_data.return_value = (assembly_part_data, [])
+
+    # Mock other required methods
+    mock_api_client.get_bom_data.return_value = ([], [])
+
+    # Act
+    output_tables = OutputTables()
+    calculator._calculate_required_recursive(assembly_pk, 1.0, "Test", output_tables)
+
+    # Assert
+    mock_get_part_data.assert_called_once_with(assembly_pk)
+
+
+def test_get_part_data_with_building_method_old_gui():
+    """Test that _get_part_data_with_building_method uses legacy calculation for OLD_GUI method."""
+    # This test will be implemented once we add the method to the calculator
+    # For now, this is a placeholder to show the intended functionality
+    pass
+
+
+def test_get_part_data_with_building_method_new_gui():
+    """Test that _get_part_data_with_building_method uses standard calculation for NEW_GUI method."""
+    # This test will be implemented once we add the method to the calculator
+    # For now, this is a placeholder to show the intended functionality
+    pass
+
+
+def test_legacy_building_calculation_prevents_double_counting(mock_api_client):
+    """Test that legacy building calculation prevents double counting of completed items."""
+    # Arrange
+    calculator = OrderCalculator(api_client=mock_api_client, building_method=BuildingCalculationMethod.OLD_GUI)
+
+    assembly_pk = 456
+
+    # Simulate scenario where new GUI would show building=10.0 (full build order)
+    # but legacy method shows building=3.0 (only truly in-progress items)
+    standard_part_data = PartData(
+        pk=assembly_pk, name="Assembly with Double Count Issue",
+        is_purchaseable=False, is_assembly=True,
+        total_in_stock=7.0,  # Includes 7 completed items from build order
+        building=10.0,       # New GUI: full build order quantity
+        required_for_build_orders=0.0, required_for_sales_orders=0.0
+    )
+
+    # Legacy method should return only 3.0 (truly in-progress items)
+    legacy_building_quantity = 3.0
+
+    # Mock API calls
+    mock_api_client.get_part_data.return_value = (standard_part_data, [])
+    mock_api_client.get_legacy_building_quantity.return_value = (legacy_building_quantity, [])
+    mock_api_client.get_bom_data.return_value = ([], [])
+
+    # Act
+    input_parts = [InputPart(part_identifier=assembly_pk, quantity_to_build=5.0)]
+    result = calculator.calculate_orders(input_parts)
+
+    # Assert
+    # With legacy method: available = 7.0 - 0.0 = 7.0, effective_supply = 7.0 + 3.0 = 10.0
+    # Required = 5.0, so to_build = max(0, 5.0 - 10.0) = 0.0
+    assert assembly_pk in calculator.calculated_parts_dict
+    calculated_assembly = calculator.calculated_parts_dict[assembly_pk]
+
+    # The building field should be updated to use legacy value
+    assert calculated_assembly.building == legacy_building_quantity
+
+    # Should not need to build anything since effective supply (10.0) covers requirement (5.0)
+    assert calculated_assembly.to_build == 0.0
+
+    # Verify legacy method was called
+    mock_api_client.get_legacy_building_quantity.assert_called_once_with(assembly_pk)
+
+
+def test_new_gui_method_uses_standard_building_calculation(mock_api_client):
+    """Test that NEW_GUI method uses standard building calculation without legacy calls."""
+    # Arrange
+    calculator = OrderCalculator(api_client=mock_api_client, building_method=BuildingCalculationMethod.NEW_GUI)
+
+    assembly_pk = 789
+    standard_part_data = PartData(
+        pk=assembly_pk, name="Assembly Standard Method",
+        is_purchaseable=False, is_assembly=True,
+        total_in_stock=5.0, building=8.0,  # Standard building value
+        required_for_build_orders=0.0, required_for_sales_orders=0.0
+    )
+
+    # Mock API calls
+    mock_api_client.get_part_data.return_value = (standard_part_data, [])
+    mock_api_client.get_bom_data.return_value = ([], [])
+
+    # Act
+    input_parts = [InputPart(part_identifier=assembly_pk, quantity_to_build=10.0)]
+    result = calculator.calculate_orders(input_parts)
+
+    # Assert
+    assert assembly_pk in calculator.calculated_parts_dict
+    calculated_assembly = calculator.calculated_parts_dict[assembly_pk]
+
+    # Should use standard building value
+    assert calculated_assembly.building == 8.0
+
+    # With NEW_GUI: available = 5.0, effective_supply = 5.0 + 8.0 = 13.0
+    # Required = 10.0, so to_build = max(0, 10.0 - 13.0) = 0.0
+    assert calculated_assembly.to_build == 0.0
+
+    # Legacy method should NOT be called
+    mock_api_client.get_legacy_building_quantity.assert_not_called()

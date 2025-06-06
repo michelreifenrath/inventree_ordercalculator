@@ -749,3 +749,165 @@ def test_cli_combined_filtering_consumables_haip_optional():
         part_id_col_index = [col.header for col in parts_order_table.columns].index("Part ID")
         part_id_in_table = list(parts_order_table.columns[part_id_col_index].cells)[0]
         assert part_id_in_table == "100"  # Only required, non-consumable, non-HAIP part should be present
+
+
+# --- Tests for Building Method CLI Option ---
+
+class MockOrderCalculatorWithBuildingMethod:
+    """Mock OrderCalculator that tracks the building method passed to it."""
+    def __init__(self, api_client, building_method=None):
+        self.api_client = api_client
+        self.building_method = building_method
+
+    def calculate_orders(self, input_parts):
+        # Return simple mock result
+        from inventree_order_calculator.models import OutputTables
+        return OutputTables(parts_to_order=[], subassemblies_to_build=[])
+
+
+@mock.patch('inventree_order_calculator.cli.AppConfig')
+@mock.patch('inventree_order_calculator.cli.ApiClient')
+@mock.patch('inventree_order_calculator.cli.OrderCalculator', new=MockOrderCalculatorWithBuildingMethod)
+def test_cli_building_method_old_gui_default(MockApiClient, MockAppConfig):
+    """Test that CLI defaults to old_gui building method when no option is provided."""
+    from inventree_order_calculator.cli import app
+    from inventree_order_calculator.models import BuildingCalculationMethod
+
+    runner = CliRunner()
+
+    # Mock config loading
+    mock_config_instance = mock.Mock()
+    mock_config_instance.inventree_url = "mock_url"
+    mock_config_instance.inventree_api_token = "mock_token"
+    MockAppConfig.load.return_value = mock_config_instance
+
+    # Mock ApiClient instantiation
+    mock_api_client_instance = mock.Mock()
+    MockApiClient.return_value = mock_api_client_instance
+
+    result = runner.invoke(app, ["100:1"])
+
+    assert result.exit_code == 0
+    assert "Using legacy building calculation method (OLD_GUI)" in result.stdout
+
+
+@mock.patch('inventree_order_calculator.cli.AppConfig')
+@mock.patch('inventree_order_calculator.cli.ApiClient')
+@mock.patch('inventree_order_calculator.cli.OrderCalculator', new=MockOrderCalculatorWithBuildingMethod)
+def test_cli_building_method_old_gui_explicit(MockApiClient, MockAppConfig):
+    """Test CLI with explicit --building-method old_gui option."""
+    from inventree_order_calculator.cli import app
+    from inventree_order_calculator.models import BuildingCalculationMethod
+
+    runner = CliRunner()
+
+    # Mock config loading
+    mock_config_instance = mock.Mock()
+    mock_config_instance.inventree_url = "mock_url"
+    mock_config_instance.inventree_api_token = "mock_token"
+    MockAppConfig.load.return_value = mock_config_instance
+
+    # Mock ApiClient instantiation
+    mock_api_client_instance = mock.Mock()
+    MockApiClient.return_value = mock_api_client_instance
+
+    result = runner.invoke(app, ["100:1", "--building-method", "old_gui"])
+
+    assert result.exit_code == 0
+    assert "Using legacy building calculation method (OLD_GUI)" in result.stdout
+
+
+@mock.patch('inventree_order_calculator.cli.AppConfig')
+@mock.patch('inventree_order_calculator.cli.ApiClient')
+@mock.patch('inventree_order_calculator.cli.OrderCalculator', new=MockOrderCalculatorWithBuildingMethod)
+def test_cli_building_method_new_gui(MockApiClient, MockAppConfig):
+    """Test CLI with --building-method new_gui option."""
+    from inventree_order_calculator.cli import app
+    from inventree_order_calculator.models import BuildingCalculationMethod
+
+    runner = CliRunner()
+
+    # Mock config loading
+    mock_config_instance = mock.Mock()
+    mock_config_instance.inventree_url = "mock_url"
+    mock_config_instance.inventree_api_token = "mock_token"
+    MockAppConfig.load.return_value = mock_config_instance
+
+    # Mock ApiClient instantiation
+    mock_api_client_instance = mock.Mock()
+    MockApiClient.return_value = mock_api_client_instance
+
+    result = runner.invoke(app, ["100:1", "--building-method", "new_gui"])
+
+    assert result.exit_code == 0
+    assert "Using current InvenTree building calculation method (NEW_GUI)" in result.stdout
+
+
+@mock.patch('inventree_order_calculator.cli.AppConfig')
+@mock.patch('inventree_order_calculator.cli.ApiClient')
+@mock.patch('inventree_order_calculator.cli.OrderCalculator', new=MockOrderCalculatorWithBuildingMethod)
+def test_cli_building_method_invalid(MockApiClient, MockAppConfig):
+    """Test CLI with invalid --building-method option."""
+    from inventree_order_calculator.cli import app
+
+    runner = CliRunner()
+
+    # Mock config loading
+    mock_config_instance = mock.Mock()
+    mock_config_instance.inventree_url = "mock_url"
+    mock_config_instance.inventree_api_token = "mock_token"
+    MockAppConfig.load.return_value = mock_config_instance
+
+    # Mock ApiClient instantiation
+    mock_api_client_instance = mock.Mock()
+    MockApiClient.return_value = mock_api_client_instance
+
+    result = runner.invoke(app, ["100:1", "--building-method", "invalid_method"])
+
+    assert result.exit_code == 1
+    assert "Error: Invalid building method 'invalid_method'" in result.stdout
+    assert "Use 'old_gui' or 'new_gui'" in result.stdout
+
+
+@mock.patch('inventree_order_calculator.cli.AppConfig')
+@mock.patch('inventree_order_calculator.cli.ApiClient')
+@mock.patch('inventree_order_calculator.cli.OrderCalculator', new=MockOrderCalculatorWithBuildingMethod)
+def test_cli_building_method_case_insensitive(MockApiClient, MockAppConfig):
+    """Test that building method option is case insensitive."""
+    from inventree_order_calculator.cli import app
+
+    runner = CliRunner()
+
+    # Mock config loading
+    mock_config_instance = mock.Mock()
+    mock_config_instance.inventree_url = "mock_url"
+    mock_config_instance.inventree_api_token = "mock_token"
+    MockAppConfig.load.return_value = mock_config_instance
+
+    # Mock ApiClient instantiation
+    mock_api_client_instance = mock.Mock()
+    MockApiClient.return_value = mock_api_client_instance
+
+    # Test uppercase
+    result = runner.invoke(app, ["100:1", "--building-method", "OLD_GUI"])
+    assert result.exit_code == 0
+    assert "Using legacy building calculation method (OLD_GUI)" in result.stdout
+
+    # Test mixed case
+    result = runner.invoke(app, ["100:1", "--building-method", "New_Gui"])
+    assert result.exit_code == 0
+    assert "Using current InvenTree building calculation method (NEW_GUI)" in result.stdout
+
+
+def test_cli_building_method_help():
+    """Test that building method option appears in help text."""
+    from inventree_order_calculator.cli import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["--help"])
+
+    assert result.exit_code == 0
+    assert "--building-method" in result.stdout
+    assert "Building calculation method" in result.stdout
+    assert "old_gui" in result.stdout
+    assert "new_gui" in result.stdout
