@@ -1,7 +1,13 @@
 import pytest
 from unittest.mock import patch, MagicMock
+import sys
 
-from unittest.mock import patch, MagicMock
+# Mock inventree modules before importing ApiClient
+sys.modules['inventree'] = MagicMock()
+sys.modules['inventree.api'] = MagicMock()
+sys.modules['inventree.part'] = MagicMock()
+sys.modules['inventree.company'] = MagicMock()
+sys.modules['inventree.stock'] = MagicMock()
 
 from requests.exceptions import HTTPError # Added import
 from inventree_order_calculator.api_client import ApiClient
@@ -688,3 +694,193 @@ def test_get_category_details_api_error(MockPartCategory, mock_api_client):
     assert category_data is None
     assert len(warnings) == 1
     assert "API Error for category" in warnings[0]
+
+
+# --- Tests for Legacy Building Quantity Method ---
+
+@patch('inventree_order_calculator.api_client.StockItem')
+def test_get_legacy_building_quantity_success(MockStockItem, mock_api_client):
+    """Test fetching legacy building quantity successfully."""
+    client, mock_api_instance, _ = mock_api_client
+
+    # Mock stock items with is_building=True
+    mock_stock_item1 = MagicMock()
+    mock_stock_item1._data = {'quantity': 10.0}
+    mock_stock_item1.quantity = 10.0
+
+    mock_stock_item2 = MagicMock()
+    mock_stock_item2._data = {'quantity': 5.5}
+    mock_stock_item2.quantity = 5.5
+
+    MockStockItem.list.return_value = [mock_stock_item1, mock_stock_item2]
+
+    building_quantity, warnings = client.get_legacy_building_quantity(123)
+
+    MockStockItem.list.assert_called_once_with(mock_api_instance, part=123, is_building=True)
+    assert building_quantity == 15.5  # 10.0 + 5.5
+    assert warnings == []
+
+
+@patch('inventree_order_calculator.api_client.StockItem')
+def test_get_legacy_building_quantity_no_items(MockStockItem, mock_api_client):
+    """Test fetching legacy building quantity when no stock items are building."""
+    client, mock_api_instance, _ = mock_api_client
+
+    MockStockItem.list.return_value = []
+
+    building_quantity, warnings = client.get_legacy_building_quantity(456)
+
+    MockStockItem.list.assert_called_once_with(mock_api_instance, part=456, is_building=True)
+    assert building_quantity == 0.0
+    assert warnings == []
+
+
+@patch('inventree_order_calculator.api_client.StockItem')
+def test_get_legacy_building_quantity_none_returned(MockStockItem, mock_api_client):
+    """Test fetching legacy building quantity when StockItem.list returns None."""
+    client, mock_api_instance, _ = mock_api_client
+
+    MockStockItem.list.return_value = None
+
+    building_quantity, warnings = client.get_legacy_building_quantity(789)
+
+    MockStockItem.list.assert_called_once_with(mock_api_instance, part=789, is_building=True)
+    assert building_quantity == 0.0
+    assert warnings == []
+
+
+@patch('inventree_order_calculator.api_client.StockItem')
+def test_get_legacy_building_quantity_api_not_initialized(MockStockItem, mock_api_client):
+    """Test fetching legacy building quantity when API client is not initialized."""
+    client, mock_api_instance, _ = mock_api_client
+    client.api = None  # Simulate uninitialized API
+
+    building_quantity, warnings = client.get_legacy_building_quantity(123)
+
+    MockStockItem.list.assert_not_called()
+    assert building_quantity == 0.0
+    assert len(warnings) == 1
+    assert "API client not initialized" in warnings[0]
+
+
+@patch('inventree_order_calculator.api_client.StockItem')
+def test_get_legacy_building_quantity_http_error_404(MockStockItem, mock_api_client):
+    """Test fetching legacy building quantity when API returns 404 error."""
+    client, mock_api_instance, _ = mock_api_client
+
+    mock_response = MagicMock()
+    mock_response.status_code = 404
+    mock_response.json.return_value = {"detail": "Part not found"}
+
+    http_error = HTTPError(response=mock_response)
+    MockStockItem.list.side_effect = http_error
+
+    building_quantity, warnings = client.get_legacy_building_quantity(999)
+
+    MockStockItem.list.assert_called_once_with(mock_api_instance, part=999, is_building=True)
+    assert building_quantity == 0.0
+    assert len(warnings) == 1
+    assert "Part not found for legacy building query" in warnings[0]
+
+
+@patch('inventree_order_calculator.api_client.StockItem')
+def test_get_legacy_building_quantity_http_error_500(MockStockItem, mock_api_client):
+    """Test fetching legacy building quantity when API returns 500 error."""
+    client, mock_api_instance, _ = mock_api_client
+
+    mock_response = MagicMock()
+    mock_response.status_code = 500
+    mock_response.json.return_value = {"detail": "Internal server error"}
+
+    http_error = HTTPError(response=mock_response)
+    MockStockItem.list.side_effect = http_error
+
+    building_quantity, warnings = client.get_legacy_building_quantity(123)
+
+    MockStockItem.list.assert_called_once_with(mock_api_instance, part=123, is_building=True)
+    assert building_quantity == 0.0
+    assert len(warnings) == 1
+    assert "API HTTPError fetching legacy building quantity" in warnings[0]
+
+
+@patch('inventree_order_calculator.api_client.StockItem')
+def test_get_legacy_building_quantity_request_exception(MockStockItem, mock_api_client):
+    """Test fetching legacy building quantity when API raises RequestException."""
+    client, mock_api_instance, _ = mock_api_client
+
+    from requests.exceptions import RequestException
+    MockStockItem.list.side_effect = RequestException("Network error")
+
+    building_quantity, warnings = client.get_legacy_building_quantity(123)
+
+    MockStockItem.list.assert_called_once_with(mock_api_instance, part=123, is_building=True)
+    assert building_quantity == 0.0
+    assert len(warnings) == 1
+    assert "API RequestException fetching legacy building quantity" in warnings[0]
+
+
+@patch('inventree_order_calculator.api_client.StockItem')
+def test_get_legacy_building_quantity_unexpected_exception(MockStockItem, mock_api_client):
+    """Test fetching legacy building quantity when unexpected exception occurs."""
+    client, mock_api_instance, _ = mock_api_client
+
+    MockStockItem.list.side_effect = Exception("Unexpected error")
+
+    building_quantity, warnings = client.get_legacy_building_quantity(123)
+
+    MockStockItem.list.assert_called_once_with(mock_api_instance, part=123, is_building=True)
+    assert building_quantity == 0.0
+    assert len(warnings) == 1
+    assert "Unexpected error fetching legacy building quantity" in warnings[0]
+
+
+@patch('inventree_order_calculator.api_client.StockItem')
+def test_get_legacy_building_quantity_missing_data(MockStockItem, mock_api_client):
+    """Test fetching legacy building quantity when stock items lack _data attribute."""
+    client, mock_api_instance, _ = mock_api_client
+
+    mock_stock_item1 = MagicMock()
+    mock_stock_item1._data = {'quantity': 10.0}
+    mock_stock_item1.quantity = 10.0
+
+    mock_stock_item2 = MagicMock()
+    mock_stock_item2._data = None  # Missing _data
+    mock_stock_item2.quantity = 5.0
+
+    mock_stock_item3 = MagicMock()
+    del mock_stock_item3._data  # No _data attribute
+    mock_stock_item3.quantity = 3.0
+
+    MockStockItem.list.return_value = [mock_stock_item1, mock_stock_item2, mock_stock_item3]
+
+    building_quantity, warnings = client.get_legacy_building_quantity(123)
+
+    MockStockItem.list.assert_called_once_with(mock_api_instance, part=123, is_building=True)
+    assert building_quantity == 10.0  # Only the first item should be counted
+    assert len(warnings) == 2  # Two warnings for items lacking _data
+
+
+@patch('inventree_order_calculator.api_client.StockItem')
+def test_get_legacy_building_quantity_null_quantity(MockStockItem, mock_api_client):
+    """Test fetching legacy building quantity when stock items have null quantities."""
+    client, mock_api_instance, _ = mock_api_client
+
+    mock_stock_item1 = MagicMock()
+    mock_stock_item1._data = {'quantity': 10.0}
+    mock_stock_item1.quantity = 10.0
+
+    mock_stock_item2 = MagicMock()
+    mock_stock_item2._data = {'quantity': None}  # Null quantity
+    mock_stock_item2.quantity = None
+
+    mock_stock_item3 = MagicMock()
+    mock_stock_item3._data = {'quantity': 5.0}
+    mock_stock_item3.quantity = 5.0
+
+    MockStockItem.list.return_value = [mock_stock_item1, mock_stock_item2, mock_stock_item3]
+
+    building_quantity, warnings = client.get_legacy_building_quantity(123)
+
+    MockStockItem.list.assert_called_once_with(mock_api_instance, part=123, is_building=True)
+    assert building_quantity == 15.0  # 10.0 + 5.0, null quantity skipped
+    assert len(warnings) == 1  # One warning for null quantity
