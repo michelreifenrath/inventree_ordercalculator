@@ -825,14 +825,14 @@ with st.expander("Display Options", expanded=True):
     # Building Calculation Method Selection
     st.subheader("Building Calculation Method")
     building_method_options = {
-        "Legacy (OLD_GUI) - Recommended": BuildingCalculationMethod.OLD_GUI,
-        "Current InvenTree (NEW_GUI)": BuildingCalculationMethod.NEW_GUI
+        "New Method (like Old GUI)": BuildingCalculationMethod.OLD_GUI,
+        "Old Method (like New GUI)": BuildingCalculationMethod.NEW_GUI
     }
 
     current_method_label = next(
         (label for label, method in building_method_options.items()
          if method == st.session_state.building_calculation_method),
-        "Legacy (OLD_GUI) - Recommended"
+        "New Method (like Old GUI)"
     )
 
     selected_method_label = st.selectbox(
@@ -841,11 +841,11 @@ with st.expander("Display Options", expanded=True):
         index=list(building_method_options.keys()).index(current_method_label),
         key="building_method_selectbox",
         help="""
-        **Legacy (OLD_GUI)**: Uses StockItem.list(api, part=part_id, is_building=True) approach.
+        **New Method (like Old GUI)**: Uses StockItem.list(api, part=part_id, is_building=True) approach.
         Building quantity decreases immediately when individual build outputs are completed.
         Prevents double counting of completed items. **Recommended for accurate calculations.**
 
-        **Current InvenTree (NEW_GUI)**: Uses standard InvenTree API building field.
+        **Old Method (like New GUI)**: Uses standard InvenTree API building field.
         Shows full build order quantities until entire order is completed.
         May cause double counting if completed items are still marked as building.
         """
@@ -855,9 +855,9 @@ with st.expander("Display Options", expanded=True):
 
     # Display current method info
     if st.session_state.building_calculation_method == BuildingCalculationMethod.OLD_GUI:
-        st.info("🔧 Using Legacy building calculation - prevents double counting of completed build outputs")
+        st.info("🔧 Using New Method (like Old GUI) - prevents double counting of completed build outputs")
     else:
-        st.warning("⚠️ Using Current InvenTree building calculation - may include completed items in building quantities")
+        st.warning("⚠️ Using Old Method (like New GUI) - may include completed items in building quantities")
 
     st.divider()
 
