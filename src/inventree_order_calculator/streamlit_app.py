@@ -13,7 +13,7 @@ try:
     from inventree_order_calculator.config import AppConfig, ConfigError
     from inventree_order_calculator.api_client import ApiClient
     from inventree_order_calculator.calculator import OrderCalculator
-    from inventree_order_calculator.models import OutputTables, InputPart # Assuming InputPart is defined here or adjust import
+    from inventree_order_calculator.models import OutputTables, InputPart, BuildingCalculationMethod # Add BuildingCalculationMethod import
     from inventree_order_calculator.presets_manager import (
         load_presets_from_file,
         save_presets_to_file,
@@ -406,6 +406,8 @@ if 'show_haip_parts_toggle' not in st.session_state:
     st.session_state.show_haip_parts_toggle = False
 if 'show_optional_parts_toggle' not in st.session_state:
     st.session_state.show_optional_parts_toggle = True
+if 'building_calculation_method' not in st.session_state:
+    st.session_state.building_calculation_method = BuildingCalculationMethod.OLD_GUI
 
 # --- Preset Session State Initialization ---
 if 'presets_data' not in st.session_state:
@@ -626,7 +628,7 @@ else:
                             st.session_state.calculation_error = f"Internal Error: Invalid API client state. Expected ApiClient, got {type(api_client_instance)}."
                             raise Exception(st.session_state.calculation_error) 
 
-                        calculator = OrderCalculator(api_client_instance)
+                        calculator = OrderCalculator(api_client_instance, building_method=st.session_state.building_calculation_method)
 
                         logger.info(f"Preparing input for calculator. Original parts_to_calc: {parts_to_calc}")
                         input_parts_list = [
@@ -820,6 +822,47 @@ if st.session_state.selected_preset_name and st.session_state.selected_preset_na
 st.divider()
 
 with st.expander("Display Options", expanded=True):
+    # Building Calculation Method Selection
+    st.subheader("Building Calculation Method")
+    building_method_options = {
+        "Legacy (OLD_GUI) - Recommended": BuildingCalculationMethod.OLD_GUI,
+        "Current InvenTree (NEW_GUI)": BuildingCalculationMethod.NEW_GUI
+    }
+
+    current_method_label = next(
+        (label for label, method in building_method_options.items()
+         if method == st.session_state.building_calculation_method),
+        "Legacy (OLD_GUI) - Recommended"
+    )
+
+    selected_method_label = st.selectbox(
+        "Choose building calculation method:",
+        options=list(building_method_options.keys()),
+        index=list(building_method_options.keys()).index(current_method_label),
+        key="building_method_selectbox",
+        help="""
+        **Legacy (OLD_GUI)**: Uses StockItem.list(api, part=part_id, is_building=True) approach.
+        Building quantity decreases immediately when individual build outputs are completed.
+        Prevents double counting of completed items. **Recommended for accurate calculations.**
+
+        **Current InvenTree (NEW_GUI)**: Uses standard InvenTree API building field.
+        Shows full build order quantities until entire order is completed.
+        May cause double counting if completed items are still marked as building.
+        """
+    )
+
+    st.session_state.building_calculation_method = building_method_options[selected_method_label]
+
+    # Display current method info
+    if st.session_state.building_calculation_method == BuildingCalculationMethod.OLD_GUI:
+        st.info("🔧 Using Legacy building calculation - prevents double counting of completed build outputs")
+    else:
+        st.warning("⚠️ Using Current InvenTree building calculation - may include completed items in building quantities")
+
+    st.divider()
+
+    # Display toggles
+    st.subheader("Display Filters")
     st.session_state.show_consumables_toggle_widget = st.toggle(
         "Show Consumable Parts",
         value=st.session_state.show_consumables_toggle_widget,
