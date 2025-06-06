@@ -856,8 +856,8 @@ def test_get_legacy_building_quantity_missing_data(MockStockItem, mock_api_clien
     building_quantity, warnings = client.get_legacy_building_quantity(123)
 
     MockStockItem.list.assert_called_once_with(mock_api_instance, part=123, is_building=True)
-    assert building_quantity == 10.0  # Only the first item should be counted
-    assert len(warnings) == 2  # Two warnings for items lacking _data
+    assert building_quantity == 18.0  # All items should be counted (10.0 + 5.0 + 3.0)
+    assert len(warnings) == 0  # No warnings since all items have accessible quantity
 
 
 @patch('inventree_order_calculator.api_client.StockItem')

@@ -308,21 +308,56 @@ class ApiClient:
             total_building = 0.0
             if stock_items is not None:
                 for stock_item in stock_items:
-                    if hasattr(stock_item, '_data') and stock_item._data:
+                    quantity = None
+
+                    # Try to get quantity from direct attribute first (preferred)
+                    if hasattr(stock_item, 'quantity'):
+                        quantity = stock_item.quantity
+                    # Fallback to _data dictionary
+                    elif hasattr(stock_item, '_data') and stock_item._data:
                         quantity = stock_item._data.get('quantity', 0.0)
-                        if quantity is not None:
+
+                    if quantity is not None:
+                        try:
                             total_building += float(quantity)
-                        else:
-                            warn_msg = f"Stock item for part {part_id} has null quantity. Skipping."
+                        except (ValueError, TypeError):
+                            warn_msg = f"Stock item for part {part_id} has invalid quantity '{quantity}'. Skipping."
                             logger.warning(warn_msg)
                             warnings_list.append(warn_msg)
                     else:
-                        warn_msg = f"Stock item for part {part_id} lacks '_data'. Skipping."
+                        warn_msg = f"Stock item for part {part_id} has no accessible quantity. Skipping."
                         logger.warning(warn_msg)
                         warnings_list.append(warn_msg)
             else:
                 # No stock items found with is_building=True, which is normal
                 logger.debug(f"No stock items with is_building=True found for part {part_id}")
+
+            # Additional check: For build orders in Pending status (no outputs created yet)
+            # The old GUI also counts these as "building" quantities
+            try:
+                build_orders_data = self.api.get('build/', params={'part': part_id})
+                build_orders = build_orders_data if isinstance(build_orders_data, list) else build_orders_data.get('results', [])
+
+                for build_order in build_orders:
+                    if isinstance(build_order, dict):
+                        status = build_order.get('status', 0)
+                        status_text = build_order.get('status_text', '').lower()
+
+                        # Only include Pending orders (status 10) - these have no stock items yet
+                        # Production orders (status 20) should already have stock items with is_building=True
+                        if status == 10 or status_text == 'pending':
+                            quantity = build_order.get('quantity', 0)
+                            completed = build_order.get('completed', 0)
+                            remaining = quantity - completed
+
+                            if remaining > 0:
+                                total_building += float(remaining)
+                                logger.debug(f"Added {remaining} from pending build order for part {part_id}")
+
+            except Exception as e:
+                warn_msg = f"Failed to check build orders for part {part_id}: {e}"
+                logger.warning(warn_msg)
+                warnings_list.append(warn_msg)
 
             logger.debug(f"Legacy building quantity for part {part_id}: {total_building}")
             return total_building, warnings_list
