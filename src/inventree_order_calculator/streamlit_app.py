@@ -26,6 +26,14 @@ try:
         PresetsFile,
         PRESETS_FILE_PATH as DEFAULT_PRESETS_FILE_PATH
     )
+    from inventree_order_calculator.email_config import (
+        EmailConfig, SMTPConfig, EmailRecipients, ScheduleConfig,
+        EmailConfigManager, ScheduleFrequency, EmailSecurityType,
+        email_config_manager
+    )
+    from inventree_order_calculator.email_sender import EmailSender, EmailSendError
+    from inventree_order_calculator.email_scheduler import EmailSchedulerManager
+    from inventree_order_calculator.email_formatter import EmailFormatter
 except ImportError as e:
     st.error(f"Error importing project modules: {e}. "
              "Ensure the script is run from the project root using "
@@ -416,6 +424,14 @@ if 'new_preset_name' not in st.session_state:
     st.session_state.new_preset_name = ""
 if 'selected_preset_name' not in st.session_state:
     st.session_state.selected_preset_name = st.session_state.preset_names[0] if st.session_state.preset_names else None
+
+# --- Email Session State Initialization ---
+if 'show_advanced_settings' not in st.session_state:
+    st.session_state.show_advanced_settings = False
+if 'email_config' not in st.session_state:
+    st.session_state.email_config = email_config_manager.get_config()
+if 'email_scheduler_manager' not in st.session_state:
+    st.session_state.email_scheduler_manager = None
 
 
 # --- Configuration Loading ---
@@ -838,6 +854,499 @@ with st.expander("Display Options", expanded=True):
         key="show_optional_parts_key_main",
         help="Include parts marked as 'optional' in the BOM results."
     )
+
+# --- Advanced Settings (Email Notifications) ---
+st.divider()
+
+if st.button("⚙️ Advanced Settings", help="Configure email notifications and scheduling"):
+    st.session_state.show_advanced_settings = True
+    st.rerun()
+
+# --- Advanced Settings Dialog ---
+if st.session_state.show_advanced_settings:
+    with st.container():
+        st.subheader("📧 Email Notification Settings")
+
+        # Close button
+        col1, col2 = st.columns([6, 1])
+        with col2:
+            if st.button("✖️ Close", key="close_advanced_settings"):
+                st.session_state.show_advanced_settings = False
+                st.rerun()
+
+        # Create tabs for different settings
+        tab1, tab2, tab3, tab4 = st.tabs(["📧 Email Config", "📅 Schedule", "🧪 Test", "📊 Status"])
+
+        with tab1:
+            st.markdown("### SMTP Configuration")
+
+            # Initialize form data from existing config
+            current_config = st.session_state.email_config
+
+            with st.form("email_config_form"):
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    smtp_host = st.text_input(
+                        "SMTP Host",
+                        value=current_config.smtp.host if current_config else "",
+                        help="SMTP server hostname (e.g., smtp.gmail.com)"
+                    )
+                    smtp_port = st.number_input(
+                        "SMTP Port",
+                        min_value=1,
+                        max_value=65535,
+                        value=current_config.smtp.port if current_config else 587,
+                        help="SMTP server port (587 for TLS, 465 for SSL)"
+                    )
+                    smtp_security = st.selectbox(
+                        "Security",
+                        options=[EmailSecurityType.TLS, EmailSecurityType.SSL, EmailSecurityType.NONE],
+                        index=0 if not current_config else [EmailSecurityType.TLS, EmailSecurityType.SSL, EmailSecurityType.NONE].index(current_config.smtp.security),
+                        help="Email security protocol"
+                    )
+
+                with col2:
+                    smtp_username = st.text_input(
+                        "SMTP Username",
+                        value=current_config.smtp.username if current_config else "",
+                        help="SMTP authentication username"
+                    )
+                    smtp_password = st.text_input(
+                        "SMTP Password",
+                        type="password",
+                        value=current_config.smtp.password if current_config else "",
+                        help="SMTP authentication password"
+                    )
+
+                st.markdown("### Email Settings")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    sender_email = st.text_input(
+                        "Sender Email",
+                        value=current_config.sender_email if current_config else "",
+                        help="Email address to send from"
+                    )
+                    sender_name = st.text_input(
+                        "Sender Name",
+                        value=current_config.sender_name if current_config else "InvenTree Order Calculator",
+                        help="Display name for sender"
+                    )
+
+                with col2:
+                    subject_template = st.text_input(
+                        "Subject Template",
+                        value=current_config.subject_template if current_config else "InvenTree Order Report - {{date}}",
+                        help="Email subject template. Use {{date}}, {{time}}, {{preset}} as placeholders"
+                    )
+
+                st.markdown("### Recipients")
+
+                recipients_to = st.text_area(
+                    "To (one email per line)",
+                    value="\n".join(current_config.recipients.to) if current_config else "",
+                    help="Primary recipients, one email address per line"
+                )
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    recipients_cc = st.text_area(
+                        "CC (one email per line)",
+                        value="\n".join(current_config.recipients.cc) if current_config else "",
+                        help="CC recipients, one email address per line"
+                    )
+
+                with col2:
+                    recipients_bcc = st.text_area(
+                        "BCC (one email per line)",
+                        value="\n".join(current_config.recipients.bcc) if current_config else "",
+                        help="BCC recipients, one email address per line"
+                    )
+
+                st.markdown("### Content Options")
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    include_parts = st.checkbox(
+                        "Include Parts Table",
+                        value=current_config.include_parts_table if current_config else True,
+                        help="Include parts to order in email"
+                    )
+
+                with col2:
+                    include_assemblies = st.checkbox(
+                        "Include Assemblies Table",
+                        value=current_config.include_assemblies_table if current_config else True,
+                        help="Include assemblies to build in email"
+                    )
+
+                with col3:
+                    include_summary = st.checkbox(
+                        "Include Summary",
+                        value=current_config.include_summary if current_config else True,
+                        help="Include summary statistics in email"
+                    )
+
+                # Form submission
+                if st.form_submit_button("💾 Save Email Configuration", type="primary"):
+                    try:
+                        # Parse recipients
+                        to_emails = [email.strip() for email in recipients_to.split('\n') if email.strip()]
+                        cc_emails = [email.strip() for email in recipients_cc.split('\n') if email.strip()]
+                        bcc_emails = [email.strip() for email in recipients_bcc.split('\n') if email.strip()]
+
+                        if not to_emails:
+                            st.error("At least one recipient email is required")
+                        else:
+                            # Create configuration objects
+                            smtp_config = SMTPConfig(
+                                host=smtp_host,
+                                port=smtp_port,
+                                username=smtp_username,
+                                password=smtp_password,
+                                security=smtp_security
+                            )
+
+                            recipients_config = EmailRecipients(
+                                to=to_emails,
+                                cc=cc_emails,
+                                bcc=bcc_emails
+                            )
+
+                            schedule_config = current_config.schedule if current_config else ScheduleConfig()
+
+                            email_config = EmailConfig(
+                                smtp=smtp_config,
+                                sender_email=sender_email,
+                                sender_name=sender_name,
+                                recipients=recipients_config,
+                                subject_template=subject_template,
+                                schedule=schedule_config,
+                                include_parts_table=include_parts,
+                                include_assemblies_table=include_assemblies,
+                                include_summary=include_summary
+                            )
+
+                            # Validate configuration
+                            errors = email_config_manager.validate_config(email_config)
+                            if errors:
+                                for error in errors:
+                                    st.error(error)
+                            else:
+                                # Save configuration
+                                if email_config_manager.save_config(email_config):
+                                    st.session_state.email_config = email_config
+                                    st.success("Email configuration saved successfully!")
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to save email configuration")
+
+                    except Exception as e:
+                        st.error(f"Error saving configuration: {e}")
+
+        with tab2:
+            st.markdown("### Schedule Configuration")
+
+            if not st.session_state.email_config:
+                st.warning("Please configure email settings first before setting up scheduling.")
+            else:
+                current_schedule = st.session_state.email_config.schedule
+
+                with st.form("schedule_config_form"):
+                    schedule_enabled = st.checkbox(
+                        "Enable Automated Email Reports",
+                        value=current_schedule.enabled,
+                        help="Enable scheduled email notifications"
+                    )
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        schedule_frequency = st.selectbox(
+                            "Frequency",
+                            options=[ScheduleFrequency.DAILY, ScheduleFrequency.WEEKLY, ScheduleFrequency.MONTHLY],
+                            index=[ScheduleFrequency.DAILY, ScheduleFrequency.WEEKLY, ScheduleFrequency.MONTHLY].index(current_schedule.frequency),
+                            help="How often to send reports"
+                        )
+
+                        schedule_time = st.time_input(
+                            "Time of Day",
+                            value=datetime.strptime(current_schedule.time_of_day, "%H:%M").time(),
+                            help="What time to send the report"
+                        )
+
+                    with col2:
+                        schedule_timezone = st.text_input(
+                            "Timezone",
+                            value=current_schedule.timezone,
+                            help="Timezone for scheduling (e.g., UTC, America/New_York)"
+                        )
+
+                        preset_options = [""] + st.session_state.preset_names
+                        preset_index = 0
+                        if current_schedule.preset_name and current_schedule.preset_name in st.session_state.preset_names:
+                            preset_index = preset_options.index(current_schedule.preset_name)
+
+                        schedule_preset = st.selectbox(
+                            "Preset to Use",
+                            options=preset_options,
+                            index=preset_index,
+                            help="Which preset to use for automated calculations"
+                        )
+
+                    if st.form_submit_button("💾 Save Schedule Configuration", type="primary"):
+                        try:
+                            if schedule_enabled and not schedule_preset:
+                                st.error("Please select a preset for automated reports")
+                            else:
+                                # Update schedule configuration
+                                updated_schedule = ScheduleConfig(
+                                    enabled=schedule_enabled,
+                                    frequency=schedule_frequency,
+                                    time_of_day=schedule_time.strftime("%H:%M"),
+                                    timezone=schedule_timezone,
+                                    preset_name=schedule_preset if schedule_preset else None
+                                )
+
+                                # Update email config with new schedule
+                                updated_email_config = EmailConfig(
+                                    smtp=st.session_state.email_config.smtp,
+                                    sender_email=st.session_state.email_config.sender_email,
+                                    sender_name=st.session_state.email_config.sender_name,
+                                    recipients=st.session_state.email_config.recipients,
+                                    subject_template=st.session_state.email_config.subject_template,
+                                    schedule=updated_schedule,
+                                    include_parts_table=st.session_state.email_config.include_parts_table,
+                                    include_assemblies_table=st.session_state.email_config.include_assemblies_table,
+                                    include_summary=st.session_state.email_config.include_summary
+                                )
+
+                                # Save configuration
+                                if email_config_manager.save_config(updated_email_config):
+                                    st.session_state.email_config = updated_email_config
+
+                                    # Initialize scheduler manager if needed
+                                    if not st.session_state.email_scheduler_manager:
+                                        st.session_state.email_scheduler_manager = EmailSchedulerManager(
+                                            st.session_state.api_client,
+                                            st.session_state.presets_data
+                                        )
+                                        st.session_state.email_scheduler_manager.start_scheduler()
+
+                                    # Update schedule
+                                    if st.session_state.email_scheduler_manager.update_schedule(updated_email_config):
+                                        st.success("Schedule configuration saved and updated!")
+                                    else:
+                                        st.error("Failed to update scheduler")
+
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to save schedule configuration")
+
+                        except Exception as e:
+                            st.error(f"Error saving schedule: {e}")
+
+        with tab3:
+            st.markdown("### Test Email Configuration")
+
+            if not st.session_state.email_config:
+                st.warning("Please configure email settings first before testing.")
+            else:
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.markdown("#### Connection Test")
+                    if st.button("🔗 Test SMTP Connection", help="Test SMTP server connection and authentication"):
+                        with st.spinner("Testing SMTP connection..."):
+                            try:
+                                sender = EmailSender(st.session_state.email_config)
+                                result = sender.test_connection()
+
+                                if result['success']:
+                                    st.success(f"✅ {result['message']}")
+                                else:
+                                    st.error(f"❌ {result['message']}")
+                            except Exception as e:
+                                st.error(f"❌ Connection test failed: {e}")
+
+                with col2:
+                    st.markdown("#### Send Test Email")
+                    test_email = st.text_input(
+                        "Test Email Address",
+                        value=st.session_state.email_config.recipients.to[0] if st.session_state.email_config.recipients.to else "",
+                        help="Email address to send test email to"
+                    )
+
+                    if st.button("📧 Send Test Email", help="Send a test email to verify configuration"):
+                        if not test_email:
+                            st.error("Please enter a test email address")
+                        else:
+                            with st.spinner("Sending test email..."):
+                                try:
+                                    sender = EmailSender(st.session_state.email_config)
+                                    if sender.send_test_email(test_email):
+                                        st.success(f"✅ Test email sent successfully to {test_email}")
+                                    else:
+                                        st.error("❌ Failed to send test email")
+                                except EmailSendError as e:
+                                    st.error(f"❌ {e}")
+                                except Exception as e:
+                                    st.error(f"❌ Unexpected error: {e}")
+
+                st.divider()
+
+                st.markdown("#### Send Report Now")
+                st.write("Send an email report with current calculation results:")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("📊 Send Current Results", help="Send email with current calculation results"):
+                        if not st.session_state.calculation_results:
+                            st.error("No calculation results available. Please run a calculation first.")
+                        else:
+                            with st.spinner("Sending email report..."):
+                                try:
+                                    sender = EmailSender(st.session_state.email_config)
+                                    success = sender.send_report(
+                                        results=st.session_state.calculation_results,
+                                        preset_name=st.session_state.selected_preset_name,
+                                        test_mode=True  # Send to first recipient only
+                                    )
+
+                                    if success:
+                                        st.success("✅ Email report sent successfully!")
+                                    else:
+                                        st.error("❌ Failed to send email report")
+                                except EmailSendError as e:
+                                    st.error(f"❌ {e}")
+                                except Exception as e:
+                                    st.error(f"❌ Unexpected error: {e}")
+
+                with col2:
+                    preset_for_email = st.selectbox(
+                        "Or select preset for email:",
+                        options=[""] + st.session_state.preset_names,
+                        help="Calculate and send results for a specific preset"
+                    )
+
+                    if st.button("📊 Calculate & Send", help="Calculate results for preset and send email"):
+                        if not preset_for_email:
+                            st.error("Please select a preset")
+                        else:
+                            with st.spinner(f"Calculating and sending report for '{preset_for_email}'..."):
+                                try:
+                                    # Get preset and calculate
+                                    preset = get_preset_by_name(st.session_state.presets_data, preset_for_email)
+                                    if not preset:
+                                        st.error(f"Preset '{preset_for_email}' not found")
+                                    else:
+                                        # Convert preset to input parts
+                                        input_parts = [
+                                            InputPart(
+                                                part_identifier=str(item.part_id),
+                                                quantity_to_build=float(item.quantity)
+                                            )
+                                            for item in preset.items
+                                        ]
+
+                                        # Calculate
+                                        calculator = OrderCalculator(st.session_state.api_client)
+                                        results = calculator.calculate_orders(input_parts)
+
+                                        # Send email
+                                        sender = EmailSender(st.session_state.email_config)
+                                        success = sender.send_report(
+                                            results=results,
+                                            preset_name=preset_for_email,
+                                            test_mode=True
+                                        )
+
+                                        if success:
+                                            st.success(f"✅ Email report sent successfully for preset '{preset_for_email}'!")
+                                        else:
+                                            st.error("❌ Failed to send email report")
+
+                                except Exception as e:
+                                    st.error(f"❌ Error: {e}")
+
+        with tab4:
+            st.markdown("### Email System Status")
+
+            # Configuration status
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("#### Configuration Status")
+                if st.session_state.email_config:
+                    st.success("✅ Email configuration loaded")
+
+                    # Validate current config
+                    errors = email_config_manager.validate_config(st.session_state.email_config)
+                    if errors:
+                        st.error("❌ Configuration has errors:")
+                        for error in errors:
+                            st.write(f"  • {error}")
+                    else:
+                        st.success("✅ Configuration is valid")
+                else:
+                    st.warning("⚠️ No email configuration found")
+
+            with col2:
+                st.markdown("#### Scheduler Status")
+                if st.session_state.email_scheduler_manager:
+                    status = st.session_state.email_scheduler_manager.get_status()
+
+                    if status['running']:
+                        st.success("✅ Scheduler is running")
+                    else:
+                        st.error("❌ Scheduler is not running")
+
+                    if status['scheduled']:
+                        st.success("✅ Email notifications are scheduled")
+                        if status['next_run']:
+                            st.info(f"Next run: {status['next_run']}")
+                    else:
+                        st.info("ℹ️ No email notifications scheduled")
+                else:
+                    st.info("ℹ️ Scheduler not initialized")
+
+            # Configuration details
+            if st.session_state.email_config:
+                st.markdown("#### Current Configuration")
+                with st.expander("View Configuration Details"):
+                    config = st.session_state.email_config
+
+                    st.write("**SMTP Settings:**")
+                    st.write(f"  • Host: {config.smtp.host}:{config.smtp.port}")
+                    st.write(f"  • Security: {config.smtp.security.value}")
+                    st.write(f"  • Username: {config.smtp.username}")
+
+                    st.write("**Email Settings:**")
+                    st.write(f"  • Sender: {config.sender_name} <{config.sender_email}>")
+                    st.write(f"  • Subject: {config.subject_template}")
+
+                    st.write("**Recipients:**")
+                    st.write(f"  • To: {', '.join(config.recipients.to)}")
+                    if config.recipients.cc:
+                        st.write(f"  • CC: {', '.join(config.recipients.cc)}")
+                    if config.recipients.bcc:
+                        st.write(f"  • BCC: {', '.join(config.recipients.bcc)}")
+
+                    st.write("**Schedule:**")
+                    if config.schedule.enabled:
+                        st.write(f"  • Enabled: Yes")
+                        st.write(f"  • Frequency: {config.schedule.frequency.value}")
+                        st.write(f"  • Time: {config.schedule.time_of_day} ({config.schedule.timezone})")
+                        st.write(f"  • Preset: {config.schedule.preset_name}")
+                    else:
+                        st.write(f"  • Enabled: No")
+
+                    st.write("**Content Options:**")
+                    st.write(f"  • Include Parts: {config.include_parts_table}")
+                    st.write(f"  • Include Assemblies: {config.include_assemblies_table}")
+                    st.write(f"  • Include Summary: {config.include_summary}")
+
+        st.divider()
 
 # Display calculation error if it occurred (moved from below results)
 # The individual calculation messages (errors/warnings) are displayed
