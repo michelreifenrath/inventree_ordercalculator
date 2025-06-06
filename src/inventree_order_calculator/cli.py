@@ -13,7 +13,7 @@ try:
     from .api_client import ApiClient
     from .calculator import OrderCalculator
     # Import models if needed for type hinting
-    from .models import InputPart # Import InputPart
+    from .models import InputPart, BuildingCalculationMethod # Import InputPart and BuildingCalculationMethod
 except ImportError:
     # Define dummy classes if imports fail (e.g., during isolated testing setup)
     # This helps basic script parsing but won't work for actual execution.
@@ -68,6 +68,7 @@ def main(
     hide_consumables: Annotated[bool, typer.Option("--hide-consumables", help="Hide consumable parts from the output tables.")] = False,
     hide_haip_parts: Annotated[bool, typer.Option("--hide-haip-parts", help="Hide parts supplied by HAIP Solutions GmbH.")] = False,
     hide_optional_parts: Annotated[bool, typer.Option("--hide-optional-parts", help="Hide parts marked as optional in the BOM from the output tables.")] = False,
+    building_method: Annotated[str, typer.Option("--building-method", help="Building calculation method: 'old_gui' (legacy, default) or 'new_gui' (current InvenTree)")] = "old_gui",
 ):
     """
     Calculates the required components and total cost for a list of top-level parts based on Inventree BOMs.
@@ -80,13 +81,28 @@ def main(
              console.print("[bold yellow]Warning:[/bold yellow] No valid parts provided.")
              raise typer.Exit()
 
+        # Parse building method
+        try:
+            if building_method.lower() == "old_gui":
+                calc_method = BuildingCalculationMethod.OLD_GUI
+                console.print("[dim]Using legacy building calculation method (OLD_GUI)[/dim]")
+            elif building_method.lower() == "new_gui":
+                calc_method = BuildingCalculationMethod.NEW_GUI
+                console.print("[dim]Using current InvenTree building calculation method (NEW_GUI)[/dim]")
+            else:
+                console.print(f"[bold red]Error:[/bold red] Invalid building method '{building_method}'. Use 'old_gui' or 'new_gui'.")
+                raise typer.Exit(code=1)
+        except Exception as e:
+            console.print(f"[bold red]Error:[/bold red] Failed to parse building method: {e}")
+            raise typer.Exit(code=1)
+
         console.print("Loading configuration...")
         # --- Dependency Injection / Setup ---
         # In a real app, you'd load config and instantiate real objects here.
         # Tests mock these out.
         config = AppConfig.load() # Mocked in tests
         api_client = ApiClient(url=config.inventree_url, token=config.inventree_api_token) # Mocked in tests
-        calculator = OrderCalculator(api_client) # Mocked in tests
+        calculator = OrderCalculator(api_client, building_method=calc_method) # Pass building method
         # --- End Setup ---
 
         # Update print statement to use the list of InputPart objects
