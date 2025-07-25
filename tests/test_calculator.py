@@ -1270,3 +1270,179 @@ def test_new_gui_method_uses_standard_building_calculation(mock_api_client):
 
     # Legacy method should NOT be called
     mock_api_client.get_legacy_building_quantity.assert_not_called()
+
+
+def test_optional_inheritance_single_level(mock_api_client):
+    """Test that child components inherit optional status from parent when parent is optional."""
+    # Arrange
+    calculator = OrderCalculator(mock_api_client)
+    parent_assembly_pk = 300
+    child_part_pk = 301
+    top_level_assembly_pk = 302
+    
+    # Create part data
+    top_level_data = PartData(
+        pk=top_level_assembly_pk, name="Top Level Assembly", 
+        is_purchaseable=False, is_assembly=True, total_in_stock=0.0
+    )
+    parent_assembly_data = PartData(
+        pk=parent_assembly_pk, name="Parent Assembly", 
+        is_purchaseable=False, is_assembly=True, total_in_stock=0.0
+    )
+    child_part_data = PartData(
+        pk=child_part_pk, name="Child Part", 
+        is_purchaseable=True, is_assembly=False, total_in_stock=0.0
+    )
+    
+    # Configure mock API client
+    def get_part_data_side_effect(pk):
+        part_map = {
+            top_level_assembly_pk: (top_level_data, []),
+            parent_assembly_pk: (parent_assembly_data, []),
+            child_part_pk: (child_part_data, [])
+        }
+        return part_map.get(pk, (None, []))
+    
+    mock_api_client.get_part_data.side_effect = get_part_data_side_effect
+    
+    # BOM configuration: 
+    # Top Level Assembly contains Parent Assembly (marked as optional)
+    # Parent Assembly contains Child Part (not marked as optional)
+    top_level_bom = [BomItemData(
+        sub_part=parent_assembly_pk,
+        quantity=1.0,
+        is_consumable=False,
+        is_optional=True  # Parent is optional
+    )]
+    
+    parent_bom = [BomItemData(
+        sub_part=child_part_pk,
+        quantity=2.0,
+        is_consumable=False,
+        is_optional=False  # Child is NOT marked as optional in BOM
+    )]
+    
+    bom_map = {
+        top_level_assembly_pk: top_level_bom,
+        parent_assembly_pk: parent_bom,
+        child_part_pk: []
+    }
+    mock_api_client.get_bom_data.side_effect = lambda pk: (bom_map.get(pk, []), [])
+    
+    # Act
+    output_tables = OutputTables()
+    calculator._calculate_required_recursive(
+        top_level_assembly_pk, 1.0, "Top Level Assembly", output_tables
+    )
+    
+    # Assert
+    # Parent assembly should be marked as optional (directly from BOM)
+    assert parent_assembly_pk in calculator.calculated_parts_dict
+    parent_part = calculator.calculated_parts_dict[parent_assembly_pk]
+    assert parent_part.is_optional is True
+    
+    # Child part should INHERIT optional status from parent
+    # This will FAIL initially because inheritance is not implemented yet
+    assert child_part_pk in calculator.calculated_parts_dict
+    child_part = calculator.calculated_parts_dict[child_part_pk]
+    assert child_part.is_optional is True, "Child should inherit optional status from parent"
+
+
+def test_optional_inheritance_multi_level(mock_api_client):
+    """Test that optional status inherits through multiple BOM levels (grandparent -> parent -> child)."""
+    # Arrange
+    calculator = OrderCalculator(mock_api_client)
+    grandparent_pk = 400
+    parent_pk = 401
+    child_pk = 402
+    top_level_pk = 403
+    
+    # Create part data for 4-level hierarchy
+    top_level_data = PartData(pk=top_level_pk, name="Top Level", is_purchaseable=False, is_assembly=True, total_in_stock=0.0)
+    grandparent_data = PartData(pk=grandparent_pk, name="Grandparent", is_purchaseable=False, is_assembly=True, total_in_stock=0.0)
+    parent_data = PartData(pk=parent_pk, name="Parent", is_purchaseable=False, is_assembly=True, total_in_stock=0.0)
+    child_data = PartData(pk=child_pk, name="Child", is_purchaseable=True, is_assembly=False, total_in_stock=0.0)
+    
+    # Configure mock API client
+    part_map = {
+        top_level_pk: (top_level_data, []),
+        grandparent_pk: (grandparent_data, []),
+        parent_pk: (parent_data, []),
+        child_pk: (child_data, [])
+    }
+    mock_api_client.get_part_data.side_effect = lambda pk: part_map.get(pk, (None, []))
+    
+    # BOM configuration with inheritance chain:
+    # Top Level -> Grandparent (optional) -> Parent (required) -> Child (required)
+    bom_map = {
+        top_level_pk: [BomItemData(sub_part=grandparent_pk, quantity=1.0, is_consumable=False, is_optional=True)],
+        grandparent_pk: [BomItemData(sub_part=parent_pk, quantity=1.0, is_consumable=False, is_optional=False)],
+        parent_pk: [BomItemData(sub_part=child_pk, quantity=1.0, is_consumable=False, is_optional=False)],
+        child_pk: []
+    }
+    mock_api_client.get_bom_data.side_effect = lambda pk: (bom_map.get(pk, []), [])
+    
+    # Act
+    output_tables = OutputTables()
+    calculator._calculate_required_recursive(top_level_pk, 1.0, "Top Level", output_tables)
+    
+    # Assert inheritance chain
+    grandparent_part = calculator.calculated_parts_dict[grandparent_pk]
+    parent_part = calculator.calculated_parts_dict[parent_pk]
+    child_part = calculator.calculated_parts_dict[child_pk]
+    
+    assert grandparent_part.is_optional is True, "Grandparent should be optional (direct BOM marking)"
+    assert parent_part.is_optional is True, "Parent should inherit optional from grandparent"
+    assert child_part.is_optional is True, "Child should inherit optional through parent from grandparent"
+
+
+def test_optional_inheritance_mixed_scenarios(mock_api_client):
+    """Test mixed scenarios with both optional and required branches in same assembly."""
+    # Arrange
+    calculator = OrderCalculator(mock_api_client)
+    top_level_pk = 500
+    optional_branch_pk = 501
+    required_branch_pk = 502
+    optional_child_pk = 503
+    required_child_pk = 504
+    
+    # Create part data
+    parts_data = {
+        top_level_pk: PartData(pk=top_level_pk, name="Top Assembly", is_purchaseable=False, is_assembly=True, total_in_stock=0.0),
+        optional_branch_pk: PartData(pk=optional_branch_pk, name="Optional Branch", is_purchaseable=False, is_assembly=True, total_in_stock=0.0),
+        required_branch_pk: PartData(pk=required_branch_pk, name="Required Branch", is_purchaseable=False, is_assembly=True, total_in_stock=0.0),
+        optional_child_pk: PartData(pk=optional_child_pk, name="Optional Child", is_purchaseable=True, is_assembly=False, total_in_stock=0.0),
+        required_child_pk: PartData(pk=required_child_pk, name="Required Child", is_purchaseable=True, is_assembly=False, total_in_stock=0.0)
+    }
+    mock_api_client.get_part_data.side_effect = lambda pk: (parts_data.get(pk), []) if pk in parts_data else (None, [])
+    
+    # BOM structure:
+    # Top Assembly
+    #   ├── Optional Branch (optional) -> Optional Child (required in BOM, but inherits optional)
+    #   └── Required Branch (required) -> Required Child (required)
+    bom_map = {
+        top_level_pk: [
+            BomItemData(sub_part=optional_branch_pk, quantity=1.0, is_consumable=False, is_optional=True),
+            BomItemData(sub_part=required_branch_pk, quantity=1.0, is_consumable=False, is_optional=False)
+        ],
+        optional_branch_pk: [BomItemData(sub_part=optional_child_pk, quantity=1.0, is_consumable=False, is_optional=False)],
+        required_branch_pk: [BomItemData(sub_part=required_child_pk, quantity=1.0, is_consumable=False, is_optional=False)],
+        optional_child_pk: [],
+        required_child_pk: []
+    }
+    mock_api_client.get_bom_data.side_effect = lambda pk: (bom_map.get(pk, []), [])
+    
+    # Act
+    output_tables = OutputTables()
+    calculator._calculate_required_recursive(top_level_pk, 1.0, "Top Assembly", output_tables)
+    
+    # Assert mixed scenarios
+    optional_branch = calculator.calculated_parts_dict[optional_branch_pk]
+    required_branch = calculator.calculated_parts_dict[required_branch_pk]
+    optional_child = calculator.calculated_parts_dict[optional_child_pk]
+    required_child = calculator.calculated_parts_dict[required_child_pk]
+    
+    assert optional_branch.is_optional is True, "Optional branch should be optional"
+    assert required_branch.is_optional is False, "Required branch should remain required"
+    assert optional_child.is_optional is True, "Optional child should inherit from optional branch"
+    assert required_child.is_optional is False, "Required child should remain required"

@@ -26,7 +26,7 @@ COPY src/ ./src/
 COPY .env.example ./.env.example
 COPY main.py ./main.py
 COPY README.md ./README.md
-COPY Specification.md ./Specification.md
+COPY docs/ ./docs/
 
 # Set PYTHONPATH to include the src directory
 ENV PYTHONPATH /app/src

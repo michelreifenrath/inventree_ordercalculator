@@ -113,7 +113,7 @@ class OrderCalculator:
         return part_data, warnings
 
     # Internal recursive function to calculate total required quantities
-    def _calculate_required_recursive(self, part_pk: int, quantity_needed_for_parent: float, current_top_level_part_name: str, output_tables_ref: OutputTables):
+    def _calculate_required_recursive(self, part_pk: int, quantity_needed_for_parent: float, current_top_level_part_name: str, output_tables_ref: OutputTables, parent_is_optional: bool = False):
         """
         Recursively calculates the total required quantity for a part and its sub-components.
         Updates the calculated_parts_dict with results and tracks top-level part association.
@@ -124,6 +124,7 @@ class OrderCalculator:
             quantity_needed_for_parent: The quantity of this part needed for its direct parent.
             current_top_level_part_name: The name/identifier of the top-level part this requirement originates from.
             output_tables_ref: A reference to the OutputTables instance to append API warnings.
+            parent_is_optional: Whether the parent component is optional (for inheritance).
         """
         # --- Get or Create CalculatedPart entry ---
         calculated_part = self.calculated_parts_dict.get(part_pk)
@@ -224,10 +225,11 @@ class OrderCalculator:
                     sub_part_quantity_to_pass_down = net_demand_for_this_path_components * quantity_per_assembly
                     logger.debug(f"  Propagating demand to component {sub_part_pk}: {sub_part_quantity_to_pass_down:.2f} (NetParentDemandForPath:{net_demand_for_this_path_components:.2f} * BOMQty:{quantity_per_assembly:.2f}) for top-level {current_top_level_part_name}")
 
-                    # Recursive call for the sub-component, passing the SAME top-level part name.
+                    # Recursive call for the sub-component, passing the SAME top-level part name and optional status.
                     # This ensures the sub-component is added to calculated_parts_dict and its belongs_to_top_parts is updated,
                     # even if the quantity_needed_for_parent (sub_part_quantity_to_pass_down) is zero.
-                    self._calculate_required_recursive(sub_part_pk, sub_part_quantity_to_pass_down, current_top_level_part_name, output_tables_ref)
+                    sub_part_is_optional = parent_is_optional or bom_item_is_optional
+                    self._calculate_required_recursive(sub_part_pk, sub_part_quantity_to_pass_down, current_top_level_part_name, output_tables_ref, parent_is_optional=sub_part_is_optional)
 
                     # After the recursive call, the sub_part_pk will be in calculated_parts_dict.
                     # Now, update its is_consumable flag if this BOM item marks it as such.
@@ -241,12 +243,14 @@ class OrderCalculator:
                             # This case should ideally not happen if _calculate_required_recursive works correctly
                             logger.error(f"Sub-part PK {sub_part_pk} not found in calculated_parts_dict after recursive call. Cannot update consumable status from BOM item.")
 
-                    # Update the is_optional flag if this BOM item marks it as optional.
-                    if bom_item_is_optional:
+                    # Update the is_optional flag if this BOM item marks it as optional OR if parent is optional (inheritance)
+                    is_inherited_optional = parent_is_optional or bom_item_is_optional
+                    if is_inherited_optional:
                         if sub_part_pk in self.calculated_parts_dict:
-                            # If any BOM line marks it as optional, the CalculatedPart becomes optional.
+                            # If any BOM line marks it as optional OR parent is optional, the CalculatedPart becomes optional.
                             if not self.calculated_parts_dict[sub_part_pk].is_optional:
-                                logger.debug(f"Marking sub-part {sub_part_pk} as optional due to BOM item in assembly {part_pk}.")
+                                reason = "BOM item" if bom_item_is_optional else "parent inheritance"
+                                logger.debug(f"Marking sub-part {sub_part_pk} as optional due to {reason} in assembly {part_pk}.")
                                 self.calculated_parts_dict[sub_part_pk].is_optional = True
                         else:
                             # This case should ideally not happen if _calculate_required_recursive works correctly
@@ -317,7 +321,8 @@ class OrderCalculator:
                 logger.info(f"Processing top-level part: {top_level_name} (PK: {part_pk}), Quantity: {input_part.quantity_to_build}")
 
                 # Call recursive function with the top-level part name and output_tables reference
-                self._calculate_required_recursive(part_pk, input_part.quantity_to_build, top_level_name, output_tables)
+                # Top-level parts start as not optional (parent_is_optional=False)
+                self._calculate_required_recursive(part_pk, input_part.quantity_to_build, top_level_name, output_tables, parent_is_optional=False)
 
             except ValueError:
                  warning_msg = f"Invalid part identifier '{input_part.part_identifier}'. Must be an integer PK. Skipping."
