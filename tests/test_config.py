@@ -1,5 +1,6 @@
 import pytest
 import os
+from pathlib import Path
 from unittest import mock
 
 from inventree_order_calculator.config import AppConfig, ConfigError
@@ -128,3 +129,42 @@ def test_app_config_attributes_optional_missing():
     assert config.inventree_url == TEST_URL
     assert config.inventree_api_token == TEST_TOKEN
     assert config.inventree_instance_url is None
+
+# TDD: Tests for configurable presets file path functionality
+@mock.patch.dict(os.environ, {
+    "INVENTREE_URL": TEST_URL,
+    "INVENTREE_API_TOKEN": TEST_TOKEN,
+    "PRESETS_FILE_PATH": "/app/data/presets.json"
+})
+def test_load_config_with_custom_presets_path():
+    """Test that custom presets file path is loaded from environment."""
+    config = AppConfig.load()
+    assert config.presets_file_path == Path("/app/data/presets.json")
+
+@mock.patch.dict(os.environ, {
+    "INVENTREE_URL": TEST_URL,
+    "INVENTREE_API_TOKEN": TEST_TOKEN
+})
+def test_load_config_with_default_presets_path():
+    """Test that default presets file path is used when not specified."""
+    config = AppConfig.load()
+    assert config.presets_file_path == Path("presets.json")
+
+@mock.patch.dict(os.environ, {
+    "INVENTREE_URL": TEST_URL,
+    "INVENTREE_API_TOKEN": TEST_TOKEN,
+    "PRESETS_FILE_PATH": "custom/path/my_presets.json"
+})
+def test_load_config_with_relative_presets_path():
+    """Test that relative presets file path works correctly."""
+    config = AppConfig.load()
+    assert config.presets_file_path == Path("custom/path/my_presets.json")
+
+def test_app_config_presets_path_attribute():
+    """Test that AppConfig can be instantiated with presets_file_path."""
+    config = AppConfig(
+        inventree_url=TEST_URL,
+        inventree_api_token=TEST_TOKEN,
+        presets_file_path=Path("/custom/presets.json")
+    )
+    assert config.presets_file_path == Path("/custom/presets.json")

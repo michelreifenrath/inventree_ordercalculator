@@ -6,5 +6,8 @@ services:
       - "8501:8501"
     volumes:
       - ./.env:/app/.env
+      - ./data:/app/data  # Persistent storage for presets and other data
+    environment:
+      - PRESETS_FILE_PATH=/app/data/presets.json  # Configure presets to use persistent storage
     # The working directory is set to /app in the Dockerfile,
     # so AppConfig should find .env in /app/.env

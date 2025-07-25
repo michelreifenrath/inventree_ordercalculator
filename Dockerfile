@@ -29,7 +29,10 @@ COPY README.md ./README.md
 COPY docs/ ./docs/
 
 # Set PYTHONPATH to include the src directory
-ENV PYTHONPATH /app/src
+ENV PYTHONPATH=/app/src
+
+# Create directory for persistent data storage
+RUN mkdir -p /app/data && chmod 755 /app/data
 
 # Expose the port Streamlit runs on
 EXPOSE 8501

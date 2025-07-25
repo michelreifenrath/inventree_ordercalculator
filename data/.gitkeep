@@ -1,0 +1,2 @@
+# This file ensures the data directory is tracked in Git
+# The data directory is used for persistent storage in Docker containers

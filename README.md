@@ -29,6 +29,7 @@ The tool requires access to your InvenTree instance. Configure the following env
 -   `INVENTREE_URL`: The base URL of your InvenTree instance (e.g., `http://inventree.example.com`).
 -   `INVENTREE_API_TOKEN`: Your InvenTree API token. You can generate this in your InvenTree user settings.
 -   `INVENTREE_INSTANCE_URL` (Optional): The base URL of your InvenTree instance, used for generating clickable links to parts in the output (e.g., `https://my.inventree.server`). If not provided, links will not be generated.
+-   `PRESETS_FILE_PATH` (Optional): Custom path for storing presets. Defaults to `presets.json` in the current directory. For Docker deployments, this is automatically set to `/app/data/presets.json` for persistent storage.
 
 You can set these variables directly in your shell environment:
 
@@ -209,3 +210,38 @@ To run the Inventree Order Calculator using Docker Compose, follow these steps:
 
 4.  **Access the application:**
     The Streamlit application will then be accessible in your web browser at `http://localhost:XXXXX` (replace `XXXXX` with the port number you found in the previous step).
+
+## Persistent Storage for Docker
+
+The Docker Compose configuration includes persistent storage for presets and other application data:
+
+- **Volume Mount**: The `./data` directory on your host is mounted to `/app/data` in the container
+- **Presets Storage**: Presets are automatically stored in `/app/data/presets.json` within the container, which corresponds to `./data/presets.json` on your host
+- **Data Persistence**: Your saved presets will survive container rebuilds and updates
+- **Migration**: If you have existing presets in the old location (`presets.json`), they will be automatically migrated to the new persistent location on first startup
+
+### Troubleshooting Persistent Storage
+
+If you're experiencing issues with preset persistence:
+
+1. **Check directory permissions**: Ensure the `./data` directory exists and is writable:
+   ```bash
+   mkdir -p ./data
+   chmod 755 ./data
+   ```
+
+2. **Verify volume mount**: Check that the volume is properly mounted:
+   ```bash
+   docker-compose exec inventree-calculator ls -la /app/data
+   ```
+
+3. **Check environment variable**: Verify the presets path is correctly set:
+   ```bash
+   docker-compose exec inventree-calculator echo $PRESETS_FILE_PATH
+   ```
+   Should output: `/app/data/presets.json`
+
+4. **Manual backup**: You can manually backup your presets by copying the file:
+   ```bash
+   cp ./data/presets.json ./presets_backup.json
+   ```

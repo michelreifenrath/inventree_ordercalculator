@@ -150,3 +150,11 @@ node_modules/
 # Task files
 tasks.json
 tasks/ 
+
+# Data directory (persistent storage for Docker)
+data/*
+!data/.gitkeep
+
+# Presets files (environment-specific, should not be committed)
+presets.json
+**/presets.json

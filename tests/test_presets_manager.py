@@ -284,3 +284,118 @@ def test_get_preset_by_name_non_existent(tmp_path):
 
     found_preset = get_preset_by_name(presets_file, "NonExistentPresetName")
     assert found_preset is None
+
+# TDD: Tests for configurable presets path functionality
+def test_get_presets_file_path_with_default():
+    """Test getting default presets file path when no custom path is provided."""
+    from src.inventree_order_calculator.presets_manager import get_presets_file_path
+    
+    path = get_presets_file_path()
+    assert path == Path("presets.json")
+
+def test_get_presets_file_path_with_custom_path():
+    """Test getting custom presets file path from config."""
+    from src.inventree_order_calculator.presets_manager import get_presets_file_path
+    from pathlib import Path
+    
+    custom_path = Path("/app/data/presets.json")
+    path = get_presets_file_path(custom_path)
+    assert path == custom_path
+
+def test_get_presets_file_path_with_config_object(tmp_path):
+    """Test getting presets file path from config object."""
+    from src.inventree_order_calculator.presets_manager import get_presets_file_path
+    from src.inventree_order_calculator.config import AppConfig
+    from unittest.mock import Mock
+    
+    # Create a mock config object
+    mock_config = Mock()
+    mock_config.presets_file_path = tmp_path / "config_presets.json"
+    
+    path = get_presets_file_path(config=mock_config)
+    assert path == tmp_path / "config_presets.json"
+
+# TDD: Tests for migration functionality
+def test_migrate_presets_from_old_location(tmp_path):
+    """Test migrating presets from old location to new location."""
+    from src.inventree_order_calculator.presets_manager import migrate_presets_if_needed
+    
+    # Create old presets file
+    old_file = tmp_path / "presets.json"
+    new_file = tmp_path / "data" / "presets.json"
+    
+    # Create some test data in old location
+    preset_data = {
+        "presets": [
+            {"name": "Test Preset", "items": [{"part_id": "123", "quantity": 5}]}
+        ]
+    }
+    old_file.write_text(json.dumps(preset_data))
+    
+    # Migrate presets
+    result = migrate_presets_if_needed(old_file, new_file)
+    
+    # Check that migration was successful
+    assert result is True
+    assert new_file.exists()
+    assert not old_file.exists()  # Old file should be removed after migration
+    
+    # Verify content was migrated correctly
+    migrated_data = json.loads(new_file.read_text())
+    assert migrated_data == preset_data
+
+def test_migrate_presets_no_old_file(tmp_path):
+    """Test migration when no old presets file exists."""
+    from src.inventree_order_calculator.presets_manager import migrate_presets_if_needed
+    
+    old_file = tmp_path / "presets.json"
+    new_file = tmp_path / "data" / "presets.json"
+    
+    # No old file exists
+    result = migrate_presets_if_needed(old_file, new_file)
+    
+    # No migration should occur
+    assert result is False
+    assert not new_file.exists()
+
+def test_migrate_presets_new_file_already_exists(tmp_path):
+    """Test migration when new file already exists - should not overwrite."""
+    from src.inventree_order_calculator.presets_manager import migrate_presets_if_needed
+    
+    old_file = tmp_path / "presets.json"
+    new_file = tmp_path / "data" / "presets.json"
+    new_file.parent.mkdir(exist_ok=True)
+    
+    # Create both old and new files
+    old_data = {"presets": [{"name": "Old", "items": []}]}
+    new_data = {"presets": [{"name": "New", "items": []}]}
+    
+    old_file.write_text(json.dumps(old_data))
+    new_file.write_text(json.dumps(new_data))
+    
+    # Migration should not overwrite existing new file
+    result = migrate_presets_if_needed(old_file, new_file)
+    
+    assert result is False
+    assert old_file.exists()  # Old file should remain
+    assert new_file.exists()
+    
+    # New file content should be unchanged
+    final_data = json.loads(new_file.read_text())
+    assert final_data == new_data
+
+# TDD: Tests for directory creation
+def test_save_presets_creates_directory(tmp_path):
+    """Test that saving presets creates the directory structure if it doesn't exist."""
+    nested_file = tmp_path / "data" / "nested" / "presets.json"
+    presets_to_save = PresetsFile(presets=[], filepath=nested_file)
+    
+    # Directory doesn't exist initially
+    assert not nested_file.parent.exists()
+    
+    # Save should create the directory
+    result = save_presets_to_file(presets_to_save, filepath=nested_file)
+    
+    assert result is True
+    assert nested_file.exists()
+    assert nested_file.parent.exists()

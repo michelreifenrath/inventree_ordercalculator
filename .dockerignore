@@ -50,3 +50,7 @@ MANIFEST
 research/
 .venv/
 *.log
+
+# Presets (environment-specific data)
+presets.json
+data/

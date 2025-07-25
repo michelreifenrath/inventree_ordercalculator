@@ -21,6 +21,8 @@ try:
         delete_preset_by_name,
         get_preset_names,
         get_preset_by_name,
+        get_presets_file_path,
+        migrate_presets_if_needed,
         Preset,
         PresetItem,
         PresetsFile,
@@ -46,7 +48,7 @@ logger.info("Streamlit app script started/reloaded.")
 
 # --- Constants ---
 TARGET_CATEGORY_ID = 191 # As specified in the requirements
-PRESETS_FILE_PATH = DEFAULT_PRESETS_FILE_PATH # Use the path from presets_manager
+# PRESETS_FILE_PATH will be set dynamically based on configuration
 
 # --- Helper Functions ---
 
@@ -408,10 +410,14 @@ if 'show_optional_parts_toggle' not in st.session_state:
     st.session_state.show_optional_parts_toggle = True
 if 'building_calculation_method' not in st.session_state:
     st.session_state.building_calculation_method = BuildingCalculationMethod.OLD_GUI
+if 'presets_file_path' not in st.session_state:
+    st.session_state.presets_file_path = DEFAULT_PRESETS_FILE_PATH  # Will be updated by config loading
 
 # --- Preset Session State Initialization ---
 if 'presets_data' not in st.session_state:
-    st.session_state.presets_data = load_presets_from_file(PRESETS_FILE_PATH)
+    # Use the current presets file path from session state
+    current_presets_path = getattr(st.session_state, 'presets_file_path', DEFAULT_PRESETS_FILE_PATH)
+    st.session_state.presets_data = load_presets_from_file(current_presets_path)
 if 'preset_names' not in st.session_state:
     st.session_state.preset_names = get_preset_names(st.session_state.presets_data)
 if 'new_preset_name' not in st.session_state:
@@ -426,6 +432,16 @@ if st.session_state.config is None and st.session_state.config_error is None:
         config = AppConfig.load() 
         st.session_state.config = config
         logger.info(f"AppConfig loaded in Streamlit: URL='{st.session_state.config.inventree_url}', Token is {'SET' if st.session_state.config.inventree_api_token else 'NOT SET'}")
+
+        # Setup presets file path from configuration
+        presets_file_path = get_presets_file_path(config=config)
+        
+        # Handle migration from old location if needed
+        old_presets_path = DEFAULT_PRESETS_FILE_PATH
+        if old_presets_path != presets_file_path:
+            migrate_presets_if_needed(old_presets_path, presets_file_path)
+        
+        st.session_state.presets_file_path = presets_file_path
 
         url = config.inventree_url
         token = config.inventree_api_token
@@ -722,7 +738,7 @@ if st.sidebar.button("Save Current Set", key="save_preset_button"):
                     st.session_state.presets_data,
                     new_preset_obj
                 )
-                save_success = save_presets_to_file(st.session_state.presets_data, PRESETS_FILE_PATH)
+                save_success = save_presets_to_file(st.session_state.presets_data, st.session_state.presets_file_path)
                 if save_success:
                     st.sidebar.success(f"Preset '{preset_name_to_save}' saved!")
                     st.session_state.preset_names = get_preset_names(st.session_state.presets_data)
@@ -793,7 +809,7 @@ if st.session_state.selected_preset_name and st.session_state.selected_preset_na
                 st.rerun()
             else:
                 st.sidebar.error(f"Could not find preset '{st.session_state.selected_preset_name}' to load.")
-                st.session_state.presets_data = load_presets_from_file(PRESETS_FILE_PATH)
+                st.session_state.presets_data = load_presets_from_file(st.session_state.presets_file_path)
                 st.session_state.preset_names = get_preset_names(st.session_state.presets_data)
                 st.rerun()
     
@@ -805,7 +821,7 @@ if st.session_state.selected_preset_name and st.session_state.selected_preset_na
                 name_to_delete
             )
             # Corrected argument order: (presets_data, filepath)
-            save_success = save_presets_to_file(st.session_state.presets_data, PRESETS_FILE_PATH)
+            save_success = save_presets_to_file(st.session_state.presets_data, st.session_state.presets_file_path)
             if save_success:
                 st.sidebar.success(f"Preset '{name_to_delete}' deleted!")
                 st.session_state.preset_names = get_preset_names(st.session_state.presets_data)
@@ -814,7 +830,7 @@ if st.session_state.selected_preset_name and st.session_state.selected_preset_na
                 st.rerun()
             else:
                 st.sidebar.error(f"Failed to save changes after deleting '{name_to_delete}'.")
-                st.session_state.presets_data = load_presets_from_file(PRESETS_FILE_PATH) 
+                st.session_state.presets_data = load_presets_from_file(st.session_state.presets_file_path) 
                 st.session_state.preset_names = get_preset_names(st.session_state.presets_data)
                 st.rerun()
 

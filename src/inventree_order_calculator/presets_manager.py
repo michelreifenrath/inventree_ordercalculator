@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 import json
 import logging
+import shutil
 
 from pydantic import BaseModel, ValidationError
 
@@ -151,6 +152,61 @@ def get_preset_by_name(presets_data: PresetsFile, name: str) -> Optional[Preset]
             return preset
     logging.info(f"Preset '{name}' not found.")
     return None
+
+def get_presets_file_path(custom_path: Optional[Path] = None, config=None) -> Path:
+    """
+    Get the presets file path from configuration or use default.
+    
+    Args:
+        custom_path: Direct path override
+        config: AppConfig object with presets_file_path attribute
+        
+    Returns:
+        Path object for presets file
+    """
+    if custom_path is not None:
+        return custom_path
+    
+    if config is not None and hasattr(config, 'presets_file_path'):
+        return config.presets_file_path
+    
+    return Path("presets.json")
+
+def migrate_presets_if_needed(old_path: Path, new_path: Path) -> bool:
+    """
+    Migrate presets from old location to new location if needed.
+    
+    Args:
+        old_path: Path to old presets file
+        new_path: Path to new presets file location
+        
+    Returns:
+        True if migration was performed, False otherwise
+    """
+    # Don't migrate if old file doesn't exist
+    if not old_path.exists():
+        return False
+    
+    # Don't migrate if new file already exists
+    if new_path.exists():
+        return False
+    
+    try:
+        # Ensure the new directory exists
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Copy the old file to new location
+        shutil.copy2(old_path, new_path)
+        
+        # Remove the old file after successful copy
+        old_path.unlink()
+        
+        logging.info(f"Successfully migrated presets from {old_path} to {new_path}")
+        return True
+        
+    except Exception as e:
+        logging.error(f"Failed to migrate presets from {old_path} to {new_path}: {e}")
+        return False
 
 if __name__ == '__main__':
     # Example Usage and Basic Test
