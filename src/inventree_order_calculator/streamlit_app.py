@@ -413,17 +413,7 @@ if 'building_calculation_method' not in st.session_state:
 if 'presets_file_path' not in st.session_state:
     st.session_state.presets_file_path = DEFAULT_PRESETS_FILE_PATH  # Will be updated by config loading
 
-# --- Preset Session State Initialization ---
-if 'presets_data' not in st.session_state:
-    # Use the current presets file path from session state
-    current_presets_path = getattr(st.session_state, 'presets_file_path', DEFAULT_PRESETS_FILE_PATH)
-    st.session_state.presets_data = load_presets_from_file(current_presets_path)
-if 'preset_names' not in st.session_state:
-    st.session_state.preset_names = get_preset_names(st.session_state.presets_data)
-if 'new_preset_name' not in st.session_state:
-    st.session_state.new_preset_name = ""
-if 'selected_preset_name' not in st.session_state:
-    st.session_state.selected_preset_name = st.session_state.preset_names[0] if st.session_state.preset_names else None
+# --- Preset Session State Initialization will happen after config loading ---
 
 
 # --- Configuration Loading ---
@@ -465,6 +455,17 @@ if st.session_state.config is None and st.session_state.config_error is None:
 
         st.success("Configuration loaded successfully from .env.")
         st.info(f"Using InvenTree URL: {config.inventree_url}")
+        
+        # --- Initialize Presets After Configuration Loading ---
+        # Now that we have the correct presets_file_path, initialize presets
+        if 'presets_data' not in st.session_state:
+            st.session_state.presets_data = load_presets_from_file(st.session_state.presets_file_path)
+        if 'preset_names' not in st.session_state:
+            st.session_state.preset_names = get_preset_names(st.session_state.presets_data)
+        if 'new_preset_name' not in st.session_state:
+            st.session_state.new_preset_name = ""
+        if 'selected_preset_name' not in st.session_state:
+            st.session_state.selected_preset_name = st.session_state.preset_names[0] if st.session_state.preset_names else None
     except ConfigError as e:
         logger.error(f"Configuration Error during initial load: {e}", exc_info=True)
         st.session_state.config_error = f"Configuration Error: {e}"
